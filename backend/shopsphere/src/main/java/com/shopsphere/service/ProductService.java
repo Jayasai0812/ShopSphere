@@ -2,8 +2,10 @@ package com.shopsphere.service;
 
 import com.shopsphere.dto.ProductRequestDTO;
 import com.shopsphere.dto.ProductResponseDTO;
+import com.shopsphere.dto.ProductUpdateRequestDTO;
 import com.shopsphere.entity.Inventory;
 import com.shopsphere.entity.Product;
+import com.shopsphere.exception.DuplicateSkuException;
 import com.shopsphere.exception.ResourceNotFoundException;
 import com.shopsphere.repository.CategoryRepository;
 import com.shopsphere.repository.ProductRepository;
@@ -56,6 +58,47 @@ public class ProductService {
 
         Product saved = productRepository.save(product);
         return toResponse(saved);
+    }
+
+    public ProductResponseDTO updateProduct(Long id, ProductUpdateRequestDTO request) {
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Product not found with id: " + id));
+
+        productRepository.findBySku(request.sku())
+                .filter(existing -> !existing.getId().equals(id))
+                .ifPresent(existing -> { throw new DuplicateSkuException(request.sku()); });
+
+        var category = categoryRepository.findById(request.categoryId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Category not found with id: " + request.categoryId()));
+
+        product.setName(request.name());
+        product.setDescription(request.description());
+        product.setSku(request.sku());
+        product.setPrice(request.price());
+        product.setCategory(category);
+
+        if (product.getInventory() != null) {
+            product.getInventory().setStockQuantity(request.stockQuantity());
+        }
+
+        return toResponse(productRepository.save(product));
+    }
+
+    public ProductResponseDTO setProductStatus(Long id, boolean active) {
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Product not found with id: " + id));
+        product.setActive(active);
+        return toResponse(productRepository.save(product));
+    }
+
+    public void deleteProduct(Long id) {
+        if (!productRepository.existsById(id)) {
+            throw new ResourceNotFoundException("Product not found with id: " + id);
+        }
+        productRepository.deleteById(id);
     }
 
     @Transactional(readOnly = true)
