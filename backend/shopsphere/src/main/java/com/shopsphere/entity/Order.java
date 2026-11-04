@@ -51,6 +51,22 @@ public class Order extends Auditable {
     @Column(nullable = false, length = 30)
     private OrderStatus status;
 
+    // Shipping address snapshot — preserved even if customer edits their address later
+    @Column(name = "shipping_address_line1", nullable = false, length = 255)
+    private String shippingAddressLine1;
+
+    @Column(name = "shipping_city", nullable = false, length = 100)
+    private String shippingCity;
+
+    @Column(name = "shipping_state", nullable = false, length = 100)
+    private String shippingState;
+
+    @Column(name = "shipping_pincode", nullable = false, length = 12)
+    private String shippingPincode;
+
+    @Column(name = "shipping_country", nullable = false, length = 100)
+    private String shippingCountry;
+
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<OrderItem> items = new ArrayList<>();
 
