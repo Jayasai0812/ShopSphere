@@ -166,4 +166,27 @@ class CartServiceTest {
         Inventory inventory = inventoryRepository.findByProductId(productId).orElseThrow();
         assertThat(inventory.getStockQuantity()).isEqualTo(10); // unchanged
     }
+
+    @Test
+    void getCartReturnsEmptyCartWhenNoCartExists() {
+        var response = cartService.getCart(userId);
+
+        assertThat(response.cartId()).isNull();
+        assertThat(response.items()).isEmpty();
+        assertThat(response.totalItems()).isZero();
+        assertThat(response.totalAmount()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    void getCartReturnsAllItemsWithCorrectTotals() {
+        cartService.addItem(userId, new CartItemRequestDTO(productId, 2));
+        cartService.addItem(userId, new CartItemRequestDTO(secondProductId, 1));
+
+        var response = cartService.getCart(userId);
+
+        assertThat(response.cartId()).isNotNull();
+        assertThat(response.items()).hasSize(2);
+        assertThat(response.totalItems()).isEqualTo(3);
+        assertThat(response.totalAmount()).isEqualByComparingTo("6297.00"); // 2*2499 + 1*1299
+    }
 }

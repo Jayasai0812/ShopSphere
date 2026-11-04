@@ -79,13 +79,10 @@ public class CartService {
                 .findByCart_IdAndProduct_Id(cart.getId(), product.getId())
                 .orElse(null);
 
-        int newQuantity;
-        if (cartItem != null) {
-            // 8. Increase existing quantity
-            newQuantity = cartItem.getQuantity() + request.quantity();
-        } else {
-            newQuantity = request.quantity();
-        }
+        // Improvement A: use long to prevent integer overflow
+        long newQuantity = (cartItem != null)
+                ? (long) cartItem.getQuantity() + request.quantity()
+                : request.quantity();
 
         // 6. Validate combined quantity against stock (inventory not deducted)
         if (newQuantity > inventory.getStockQuantity()) {
@@ -96,18 +93,25 @@ public class CartService {
 
         // 9. Save cart item
         if (cartItem != null) {
-            cartItem.setQuantity(newQuantity);
+            cartItem.setQuantity(Math.toIntExact(newQuantity));
         } else {
             cartItem = new CartItem();
             cartItem.setCart(cart);
             cartItem.setProduct(product);
-            cartItem.setQuantity(newQuantity);
+            cartItem.setQuantity(Math.toIntExact(newQuantity));
             cart.getItems().add(cartItem);
         }
         cartItemRepository.save(cartItem);
 
         // 10. Return full cart response
         return toCartResponse(cart);
+    }
+
+    @Transactional(readOnly = true)
+    public CartResponseDTO getCart(Long userId) {
+        return cartRepository.findByUser_Id(userId)
+                .map(this::toCartResponse)
+                .orElse(new CartResponseDTO(null, List.of(), 0, BigDecimal.ZERO));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
