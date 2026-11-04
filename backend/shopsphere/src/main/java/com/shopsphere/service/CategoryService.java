@@ -27,15 +27,16 @@ public class CategoryService {
     }
 
     public CategoryResponseDTO createCategory(CategoryRequestDTO request) {
-        if (request.name() == null || request.name().isBlank()) {
+        String name = request.name().trim();
+        if (name.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Category name cannot be blank");
         }
-        if (categoryRepository.findByName(request.name()).isPresent()) {
+        if (categoryRepository.findByNameIgnoreCase(name).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Category name already exists: " + request.name());
+                    "Category name already exists: " + name);
         }
         Category category = new Category();
-        category.setName(request.name());
+        category.setName(name);
         category.setDescription(request.description());
         category.setActive(true);
         return toResponse(categoryRepository.save(category));
@@ -59,12 +60,13 @@ public class CategoryService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Category not found with id: " + id));
 
-        if (categoryRepository.existsByNameAndIdNot(request.name(), id)) {
+        String name = request.name().trim();
+        if (categoryRepository.existsByNameIgnoreCaseAndIdNot(name, id)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Category name already exists: " + request.name());
+                    "Category name already exists: " + name);
         }
 
-        category.setName(request.name());
+        category.setName(name);
         category.setDescription(request.description());
         return toResponse(categoryRepository.save(category));
     }
