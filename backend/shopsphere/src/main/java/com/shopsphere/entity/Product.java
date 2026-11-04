@@ -1,5 +1,7 @@
 package com.shopsphere.entity;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -46,6 +48,7 @@ public class Product extends Auditable {
     @JoinColumn(name = "category_id", nullable = false)
     private Category category;
 
+    @NotBlank
     @Column(nullable = false, length = 200)
     private String name;
 
@@ -55,6 +58,7 @@ public class Product extends Auditable {
     @Column(nullable = false, unique = true, length = 64)
     private String sku;
 
+    @Positive
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal price;
 

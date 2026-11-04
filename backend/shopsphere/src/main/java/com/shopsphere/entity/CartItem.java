@@ -1,5 +1,6 @@
 package com.shopsphere.entity;
 
+import jakarta.validation.constraints.Positive;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -41,6 +42,7 @@ public class CartItem {
     @JoinColumn(name = "product_id", nullable = false)
     private Product product;
 
+    @Positive
     @Column(nullable = false)
     private int quantity;
 }

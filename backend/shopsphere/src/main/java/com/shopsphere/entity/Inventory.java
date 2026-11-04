@@ -1,5 +1,7 @@
 package com.shopsphere.entity;
 
+import jakarta.persistence.Version;
+import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -28,6 +30,10 @@ public class Inventory {
     @JoinColumn(name = "product_id", nullable = false, unique = true)
     private Product product;
 
+    @PositiveOrZero
     @Column(name = "stock_quantity", nullable = false)
     private int stockQuantity;
+
+    @Version
+    private Long version;
 }
