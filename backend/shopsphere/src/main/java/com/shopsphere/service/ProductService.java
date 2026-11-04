@@ -8,8 +8,12 @@ import com.shopsphere.exception.ResourceNotFoundException;
 import com.shopsphere.repository.CategoryRepository;
 import com.shopsphere.repository.ProductRepository;
 import com.shopsphere.repository.UserRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 @Transactional
@@ -51,8 +55,29 @@ public class ProductService {
         product.setInventory(inventory);
 
         Product saved = productRepository.save(product);
-
         return toResponse(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ProductResponseDTO> getAllProducts(Pageable pageable) {
+        return productRepository.findAll(pageable).map(this::toResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public ProductResponseDTO getProductById(Long id) {
+        return productRepository.findById(id)
+                .map(this::toResponse)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Product not found with id: " + id));
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProductResponseDTO> getProductsByCategory(Long categoryId) {
+        if (!categoryRepository.existsById(categoryId)) {
+            throw new ResourceNotFoundException("Category not found with id: " + categoryId);
+        }
+        return productRepository.findByCategoryId(categoryId)
+                .stream().map(this::toResponse).toList();
     }
 
     private ProductResponseDTO toResponse(Product product) {
