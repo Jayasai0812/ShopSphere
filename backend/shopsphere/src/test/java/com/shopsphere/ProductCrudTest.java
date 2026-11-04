@@ -134,7 +134,8 @@ class ProductCrudTest {
     @Test
     void deletesProductSuccessfully() {
         productService.deleteProduct(productId);
-        assertThat(productRepository.findById(productId)).isEmpty();
+        var found = productRepository.findById(productId).orElseThrow();
+        assertThat(found.isActive()).isFalse();
     }
 
     @Test

@@ -51,6 +51,10 @@ public class ProductService {
         product.setSeller(seller);
         product.setActive(true);
 
+        if (productRepository.findBySku(request.sku()).isPresent()) {
+            throw new DuplicateSkuException(request.sku());
+        }
+
         Inventory inventory = new Inventory();
         inventory.setProduct(product);
         inventory.setStockQuantity(request.stockQuantity());
@@ -95,10 +99,11 @@ public class ProductService {
     }
 
     public void deleteProduct(Long id) {
-        if (!productRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Product not found with id: " + id);
-        }
-        productRepository.deleteById(id);
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Product not found with id: " + id));
+        product.setActive(false);
+        productRepository.save(product);
     }
 
     @Transactional(readOnly = true)

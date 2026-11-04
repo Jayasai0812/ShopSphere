@@ -21,7 +21,7 @@ public record ProductUpdateRequestDTO(
         BigDecimal price,
 
         @PositiveOrZero
-        int stockQuantity,
+        Integer stockQuantity,
 
         @NotNull
         Long categoryId

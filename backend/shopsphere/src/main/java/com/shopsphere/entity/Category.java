@@ -31,6 +31,12 @@ public class Category extends Auditable {
     @Column(nullable = false, unique = true, length = 100)
     private String name;
 
+    @Column(length = 500)
+    private String description;
+
+    @Column(nullable = false)
+    private boolean active = true;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "parent_id")
     private Category parent;
