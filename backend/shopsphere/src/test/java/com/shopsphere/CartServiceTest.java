@@ -1,6 +1,7 @@
 package com.shopsphere;
 
 import com.shopsphere.dto.CartItemRequestDTO;
+import com.shopsphere.dto.CartItemUpdateDTO;
 import com.shopsphere.entity.Category;
 import com.shopsphere.entity.Inventory;
 import com.shopsphere.entity.Product;
@@ -21,6 +22,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
@@ -95,7 +97,7 @@ class CartServiceTest {
         assertThat(response.items().get(0).quantity()).isEqualTo(2);
         assertThat(response.items().get(0).unitPrice()).isEqualByComparingTo("2499.00");
         assertThat(response.items().get(0).subtotal()).isEqualByComparingTo("4998.00");
-        assertThat(response.totalItems()).isEqualTo(2);
+        assertThat(response.totalItems()).isEqualTo(2L);
         assertThat(response.totalAmount()).isEqualByComparingTo("4998.00");
     }
 
@@ -105,7 +107,7 @@ class CartServiceTest {
         var response = cartService.addItem(userId, new CartItemRequestDTO(secondProductId, 2));
 
         assertThat(response.items()).hasSize(2);
-        assertThat(response.totalItems()).isEqualTo(3);
+        assertThat(response.totalItems()).isEqualTo(3L);
         assertThat(response.totalAmount()).isEqualByComparingTo("5097.00"); // 2499 + 2*1299
     }
 
@@ -117,7 +119,7 @@ class CartServiceTest {
         assertThat(response.items()).hasSize(1);
         assertThat(response.items().get(0).quantity()).isEqualTo(5);
         assertThat(response.items().get(0).subtotal()).isEqualByComparingTo("12495.00");
-        assertThat(response.totalItems()).isEqualTo(5);
+        assertThat(response.totalItems()).isEqualTo(5L);
     }
 
     @Test
@@ -186,7 +188,109 @@ class CartServiceTest {
 
         assertThat(response.cartId()).isNotNull();
         assertThat(response.items()).hasSize(2);
-        assertThat(response.totalItems()).isEqualTo(3);
+        assertThat(response.totalItems()).isEqualTo(3L);
         assertThat(response.totalAmount()).isEqualByComparingTo("6297.00"); // 2*2499 + 1*1299
+    }
+
+    @Test
+    void updatesItemQuantitySuccessfully() {
+        var cart = cartService.addItem(userId, new CartItemRequestDTO(productId, 2));
+        Long itemId = cart.items().get(0).itemId();
+
+        var response = cartService.updateItem(userId, itemId, new CartItemUpdateDTO(4));
+
+        assertThat(response.items().get(0).quantity()).isEqualTo(4);
+        assertThat(response.items().get(0).subtotal()).isEqualByComparingTo("9996.00");
+        assertThat(response.totalItems()).isEqualTo(4L);
+    }
+
+    @Test
+    void updateRejectsQuantityExceedingStock() {
+        var cart = cartService.addItem(userId, new CartItemRequestDTO(productId, 2));
+        Long itemId = cart.items().get(0).itemId();
+
+        // stock is 10, requesting 11
+        assertThatThrownBy(() ->
+                cartService.updateItem(userId, itemId, new CartItemUpdateDTO(11)))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Insufficient stock");
+    }
+
+    @Test
+    void updateReturns404ForNonExistentItem() {
+        assertThatThrownBy(() ->
+                cartService.updateItem(userId, 999L, new CartItemUpdateDTO(2)))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Cart item not found");
+    }
+
+    @Test
+    void updateReturns404WhenItemBelongsToAnotherUser() {
+        var cart = cartService.addItem(userId, new CartItemRequestDTO(productId, 2));
+        Long itemId = cart.items().get(0).itemId();
+
+        User otherUser = new User();
+        otherUser.setName("Other");
+        otherUser.setEmail("other@shopsphere.test");
+        otherUser.setPasswordHash("$2a$10$dXJ3SW6G7P50lGmMkkmwe.20cQQubK3.HZWzG3YB1tlRy.fqvM/BG");
+        userRepository.save(otherUser);
+
+        assertThatThrownBy(() ->
+                cartService.updateItem(otherUser.getId(), itemId, new CartItemUpdateDTO(1)))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Cart item not found");
+    }
+
+    @Test
+    void removesItemSuccessfully() {
+        var cart = cartService.addItem(userId, new CartItemRequestDTO(productId, 2));
+        Long itemId = cart.items().get(0).itemId();
+
+        cartService.removeItem(userId, itemId);
+
+        var updated = cartService.getCart(userId);
+        assertThat(updated.items()).isEmpty();
+        assertThat(updated.totalItems()).isZero();
+    }
+
+    @Test
+    void removeReturns404ForNonExistentItem() {
+        assertThatThrownBy(() -> cartService.removeItem(userId, 999L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Cart item not found");
+    }
+
+    @Test
+    void removeReturns404WhenItemBelongsToAnotherUser() {
+        var cart = cartService.addItem(userId, new CartItemRequestDTO(productId, 1));
+        Long itemId = cart.items().get(0).itemId();
+
+        User otherUser = new User();
+        otherUser.setName("Other2");
+        otherUser.setEmail("other2@shopsphere.test");
+        otherUser.setPasswordHash("$2a$10$dXJ3SW6G7P50lGmMkkmwe.20cQQubK3.HZWzG3YB1tlRy.fqvM/BG");
+        userRepository.save(otherUser);
+
+        assertThatThrownBy(() -> cartService.removeItem(otherUser.getId(), itemId))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Cart item not found");
+    }
+
+    @Test
+    void clearsCartSuccessfully() {
+        cartService.addItem(userId, new CartItemRequestDTO(productId, 2));
+        cartService.addItem(userId, new CartItemRequestDTO(secondProductId, 1));
+
+        cartService.clearCart(userId);
+
+        var response = cartService.getCart(userId);
+        assertThat(response.items()).isEmpty();
+        assertThat(response.totalItems()).isZero();
+        assertThat(response.totalAmount()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    void clearCartOnUserWithNoCartDoesNotThrow() {
+        assertThatCode(() -> cartService.clearCart(userId)).doesNotThrowAnyException();
     }
 }

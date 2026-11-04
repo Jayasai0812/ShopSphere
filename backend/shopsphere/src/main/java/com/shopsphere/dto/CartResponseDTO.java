@@ -6,6 +6,6 @@ import java.util.List;
 public record CartResponseDTO(
         Long cartId,
         List<CartItemResponseDTO> items,
-        int totalItems,
+        long totalItems,
         BigDecimal totalAmount
 ) {}
