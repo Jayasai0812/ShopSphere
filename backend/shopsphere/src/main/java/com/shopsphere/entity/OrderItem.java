@@ -1,5 +1,7 @@
 package com.shopsphere.entity;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -41,15 +43,19 @@ public class OrderItem {
     @JoinColumn(name = "product_id", nullable = false)
     private Product product;
 
+    @NotBlank
     @Column(name = "product_name", nullable = false, length = 200)
     private String productName;
 
+    @Positive
     @Column(name = "unit_price", nullable = false, precision = 12, scale = 2)
     private BigDecimal unitPrice;
 
+    @Positive
     @Column(nullable = false)
     private int quantity;
 
+    @Positive
     @Column(name = "line_total", nullable = false, precision = 12, scale = 2)
     private BigDecimal lineTotal;
 }
