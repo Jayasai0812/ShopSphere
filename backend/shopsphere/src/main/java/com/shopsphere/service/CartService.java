@@ -161,12 +161,14 @@ public class CartService {
                         "Cart item not found with id: " + itemId));
 
         verifyOwnership(cartItem, userId);
-        cartItemRepository.deleteAllInBatch(List.of(cartItem));
+        // Remove via the relationship — orphanRemoval = true on Cart.items
+        // deletes the row at flush through normal JPA lifecycle handling.
+        cartItem.getCart().removeItem(cartItem);
     }
 
     public void clearCart(Long userId) {
         cartRepository.findByUser_Id(userId).ifPresent(cart -> {
-            cartItemRepository.deleteAllInBatch(cartItemRepository.findByCartId(cart.getId()));
+            cart.getItems().clear(); // orphanRemoval deletes each item at flush
         });
     }
 
