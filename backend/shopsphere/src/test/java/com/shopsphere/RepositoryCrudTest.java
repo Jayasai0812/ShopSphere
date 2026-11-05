@@ -201,6 +201,11 @@ class RepositoryCrudTest {
         order.setUser(customer);
         order.setStatus(OrderStatus.PAID);
         order.setTotalAmount(new BigDecimal("54999.00"));
+        order.setShippingAddressLine1("12 MG Road");
+        order.setShippingCity("Bengaluru");
+        order.setShippingState("Karnataka");
+        order.setShippingPincode("560001");
+        order.setShippingCountry("India");
 
         OrderItem item = new OrderItem();
         item.setOrder(order);
@@ -233,6 +238,11 @@ class RepositoryCrudTest {
         order.setUser(customer);
         order.setStatus(OrderStatus.PENDING);
         order.setTotalAmount(new BigDecimal("1899.00"));
+        order.setShippingAddressLine1("8 Anna Salai");
+        order.setShippingCity("Chennai");
+        order.setShippingState("Tamil Nadu");
+        order.setShippingPincode("600002");
+        order.setShippingCountry("India");
 
         OrderItem item = new OrderItem();
         item.setOrder(order);

@@ -300,8 +300,22 @@ class OrderServiceTest {
         assertThat(cart.items().get(0).quantity()).isEqualTo(3);
     }
 
-    // ── concurrency / optimistic locking ──────────────────────────────────────
+    // ── optimistic locking ────────────────────────────────────────────────
 
+    /**
+     * Stale-version conflict test — NOT a true simultaneous-checkout test.
+     * <p>
+     * It simulates a competing checkout that has already committed by updating
+     * the inventory row directly in SQL (stock and version), leaving the
+     * persistence-context entity stale. The service then reads that stale
+     * entity, passes the stock check, and fails at flush time when the
+     * {@code @Version} in the UPDATE's WHERE clause no longer matches the DB.
+     * <p>
+     * This proves the optimistic-lock mechanism rejects writes based on a stale
+     * read, but it does not exercise two independent transactions racing at the
+     * same instant. A true concurrency test (two threads/transactions calling
+     * checkout concurrently) should be added later as an integration test.
+     */
     @Test
     void concurrentCheckoutsCannotOversell() {
         // Stock = 5, cart requests 5 — a valid single checkout

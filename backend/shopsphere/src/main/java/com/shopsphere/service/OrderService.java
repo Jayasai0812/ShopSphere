@@ -13,7 +13,6 @@ import com.shopsphere.entity.User;
 import com.shopsphere.enums.OrderStatus;
 import com.shopsphere.exception.ResourceNotFoundException;
 import com.shopsphere.repository.AddressRepository;
-import com.shopsphere.repository.CartItemRepository;
 import com.shopsphere.repository.CartRepository;
 import com.shopsphere.repository.InventoryRepository;
 import com.shopsphere.repository.OrderRepository;
@@ -32,20 +31,17 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final CartRepository cartRepository;
-    private final CartItemRepository cartItemRepository;
     private final AddressRepository addressRepository;
     private final UserRepository userRepository;
     private final InventoryRepository inventoryRepository;
 
     public OrderService(OrderRepository orderRepository,
                         CartRepository cartRepository,
-                        CartItemRepository cartItemRepository,
                         AddressRepository addressRepository,
                         UserRepository userRepository,
                         InventoryRepository inventoryRepository) {
         this.orderRepository = orderRepository;
         this.cartRepository = cartRepository;
-        this.cartItemRepository = cartItemRepository;
         this.addressRepository = addressRepository;
         this.userRepository = userRepository;
         this.inventoryRepository = inventoryRepository;
@@ -75,12 +71,13 @@ public class OrderService {
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.CONFLICT, "Cannot checkout: cart is empty"));
 
-        // 4. Reject if cart is empty
-        List<CartItem> cartItems = cartItemRepository.findByCartId(cart.getId());
-        if (cartItems.isEmpty()) {
+        // 4. Reject if cart is empty (orphanRemoval cascades the deletes on clear())
+        if (cart.getItems().isEmpty()) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT, "Cannot checkout: cart is empty");
         }
+
+        List<CartItem> cartItems = List.copyOf(cart.getItems());
 
         // 5. Verify the selected address belongs to that user
         Address address = addressRepository
@@ -165,10 +162,11 @@ public class OrderService {
         // Build response while entities are fresh in the persistence context
         OrderResponseDTO response = toOrderResponse(savedOrder);
 
-        // 14. Clear the cart — only after the order is successfully created.
+        // 14. Clear the cart via the relationship — orphanRemoval = true on the
+        //     @OneToMany makes Hibernate delete each orphaned row at flush.
         //     If anything above failed, the transaction rolls back and the cart
         //     items are untouched.
-        cartItemRepository.deleteAllInBatch(cartItems);
+        cart.getItems().clear();
 
         // 15. Return the created order
         return response;
