@@ -1,6 +1,8 @@
 package com.shopsphere.service;
 
 import com.shopsphere.dto.CheckoutRequestDTO;
+import com.shopsphere.dto.OrderDetailsResponseDTO;
+import com.shopsphere.dto.OrderHistoryResponseDTO;
 import com.shopsphere.dto.OrderItemResponseDTO;
 import com.shopsphere.dto.OrderResponseDTO;
 import com.shopsphere.entity.Address;
@@ -17,6 +19,8 @@ import com.shopsphere.repository.CartRepository;
 import com.shopsphere.repository.InventoryRepository;
 import com.shopsphere.repository.OrderRepository;
 import com.shopsphere.repository.UserRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -172,7 +176,77 @@ public class OrderService {
         return response;
     }
 
+    // ── order history & details (TASK-012.2) ───────────────────────────────
+
+    /**
+     * Paginated order history for the current customer, sorted by creation
+     * date (the caller passes {@code createdAt,desc} in the Pageable).
+     * <p>
+     * The repository method is ownership-scoped by construction — it only
+     * ever returns this user's orders.
+     */
+    @Transactional(readOnly = true)
+    public Page<OrderHistoryResponseDTO> getMyOrders(Long userId, Pageable pageable) {
+        // Validate the user first so an unknown user gets a clear 404 rather
+        // than an empty page that could mask the mistake.
+        if (!userRepository.existsById(userId)) {
+            throw new ResourceNotFoundException("User not found with id: " + userId);
+        }
+
+        // Map lazily from the entity page — items are LAZY-loaded inside the
+        // open transaction. Item snapshots (name, unit price) are preserved.
+        return orderRepository.findByUserId(userId, pageable)
+                .map(order -> new OrderHistoryResponseDTO(
+                        order.getId(),
+                        order.getStatus().name(),
+                        order.getTotalAmount(),
+                        order.getCreatedAt(),
+                        toItemDTOs(order)));
+    }
+
+    /**
+     * Full details of one order, ONLY if it belongs to the current customer.
+     * <p>
+     * Uses the ownership-scoped repository lookup — never a plain findById —
+     * so a customer cannot even learn that another customer's order exists:
+     * both "someone else's order" and "no such order" return 404.
+     */
+    @Transactional(readOnly = true)
+    public OrderDetailsResponseDTO getOrderDetails(Long userId, Long orderId) {
+        Order order = orderRepository.findByIdAndUserId(orderId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Order not found with id: " + orderId));
+
+        return new OrderDetailsResponseDTO(
+                order.getId(),
+                order.getStatus().name(),
+                order.getTotalAmount(),
+                order.getCreatedAt(),
+                order.getShippingAddressLine1(),
+                order.getShippingCity(),
+                order.getShippingState(),
+                order.getShippingPincode(),
+                order.getShippingCountry(),
+                toItemDTOs(order));
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    /**
+     * Maps an order's items to DTOs. Preserves the price and product-name
+     * snapshots stored at checkout — the live catalog may have changed since.
+     */
+    private List<OrderItemResponseDTO> toItemDTOs(Order order) {
+        return order.getItems().stream()
+                .map(item -> new OrderItemResponseDTO(
+                        item.getProduct().getId(),
+                        item.getProductName(),
+                        item.getQuantity(),
+                        item.getUnitPrice(),
+                        item.getLineTotal()
+                ))
+                .toList();
+    }
 
     private OrderResponseDTO toOrderResponse(Order order) {
         List<OrderItemResponseDTO> itemDTOs = order.getItems().stream()
