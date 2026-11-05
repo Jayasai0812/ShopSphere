@@ -13,6 +13,7 @@ import com.shopsphere.repository.InventoryRepository;
 import com.shopsphere.repository.OrderRepository;
 import com.shopsphere.repository.ProductRepository;
 import com.shopsphere.repository.UserRepository;
+import com.shopsphere.security.JwtService;
 import com.shopsphere.service.CartService;
 import com.shopsphere.service.OrderService;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,8 +36,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * GET /api/v1/orders — paginated order history
  * GET /api/v1/orders/{id} — single order details (ownership-scoped)
  * <p>
- * The authenticated user is supplied via the {@code X-User-Id} header, which
- * is how {@code HttpHeaderCurrentUserProvider} resolves the current user.
+ * Authentication goes through the real production path: a JWT is minted with
+ * {@link JwtService} and sent as a Bearer token, so the filter,
+ * {@code CustomUserDetailsService} and {@code SecurityContextCurrentUserProvider}
+ * are all exercised.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -61,6 +64,8 @@ class OrderControllerTest {
     private CartService cartService;
     @Autowired
     private OrderService orderService;
+    @Autowired
+    private JwtService jwtService;
 
     private Long userId;
     private Long otherUserId;
@@ -188,11 +193,19 @@ class OrderControllerTest {
 
 
 
+    /** Creates a real Bearer token for the given user id, as the app would after login. */
+    private String bearer(Long uid) {
+        User user = userRepository.findById(uid).orElseThrow();
+        return "Bearer " + jwtService.generateToken(
+                user.getEmail(), uid, user.getRoles().stream()
+                        .map(r -> r.getRoleName()).toList());
+    }
+
     // ── GET /api/v1/orders — order history ──────────────────────────────────
 
     @Test
     void getMyOrders_returnsEmptyPageForCustomerWithNoOrders() throws Exception {
-        mockMvc.perform(get("/api/v1/orders").header("X-User-Id", userId))
+        mockMvc.perform(get("/api/v1/orders").header("Authorization", bearer(userId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(0)))
                 .andExpect(jsonPath("$.totalElements").value(0));
@@ -202,7 +215,7 @@ class OrderControllerTest {
     void getMyOrders_returnsAllOrdersForCustomerWithMultipleOrders() throws Exception {
         createOrders(userId, addressId, 3);
 
-        mockMvc.perform(get("/api/v1/orders").header("X-User-Id", userId))
+        mockMvc.perform(get("/api/v1/orders").header("Authorization", bearer(userId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(3))
                 .andExpect(jsonPath("$.content", hasSize(3)))
@@ -214,7 +227,7 @@ class OrderControllerTest {
         createOrders(userId, addressId, 1);
         createOrders(otherUserId, otherAddressId, 1);
 
-        mockMvc.perform(get("/api/v1/orders").header("X-User-Id", userId))
+        mockMvc.perform(get("/api/v1/orders").header("Authorization", bearer(userId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].items[0].productName")
@@ -227,7 +240,7 @@ class OrderControllerTest {
 
         // Explicit page size 5 → two pages
         mockMvc.perform(get("/api/v1/orders")
-                        .header("X-User-Id", userId)
+                        .header("Authorization", bearer(userId))
                         .param("page", "0")
                         .param("size", "5"))
                 .andExpect(status().isOk())
@@ -237,14 +250,14 @@ class OrderControllerTest {
 
         // Page 2 holds the remaining 2 orders
         mockMvc.perform(get("/api/v1/orders")
-                        .header("X-User-Id", userId)
+                        .header("Authorization", bearer(userId))
                         .param("page", "1")
                         .param("size", "5"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(2)));
 
         // Default sort is createdAt DESC → first row is the newest order
-        mockMvc.perform(get("/api/v1/orders").header("X-User-Id", userId))
+        mockMvc.perform(get("/api/v1/orders").header("Authorization", bearer(userId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].orderId").value(orderIdOfLatest()));
 
@@ -253,7 +266,7 @@ class OrderControllerTest {
         // a client requesting asc cannot override the default here — verified
         // separately via the repository-level ascending query in OrderServiceTest).
         mockMvc.perform(get("/api/v1/orders")
-                        .header("X-User-Id", userId)
+                        .header("Authorization", bearer(userId))
                         .param("sort", "createdAt,desc"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].orderId").value(orderIdOfLatest()));
@@ -263,7 +276,7 @@ class OrderControllerTest {
     void getMyOrders_includesItemSnapshots() throws Exception {
         checkout(userId, addressId, productId, 2, secondProductId, 1);
 
-        mockMvc.perform(get("/api/v1/orders").header("X-User-Id", userId))
+        mockMvc.perform(get("/api/v1/orders").header("Authorization", bearer(userId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(1)))
                 .andExpect(jsonPath("$.content[0].items", hasSize(2)))
@@ -279,7 +292,7 @@ class OrderControllerTest {
         Long orderId = checkout(userId, addressId, productId, 3);
 
         mockMvc.perform(get("/api/v1/orders/{orderId}", orderId)
-                        .header("X-User-Id", userId))
+                        .header("Authorization", bearer(userId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderId").value(orderId))
                 .andExpect(jsonPath("$.status").value("PENDING"))
@@ -296,14 +309,14 @@ class OrderControllerTest {
         // The other user gets 404 — not 403 — so they cannot even learn that
         // this order exists.
         mockMvc.perform(get("/api/v1/orders/{orderId}", orderId)
-                        .header("X-User-Id", otherUserId))
+                        .header("Authorization", bearer(otherUserId)))
                 .andExpect(status().isNotFound());
     }
 
     @Test
     void getOrderDetails_returns404ForNonexistentOrder() throws Exception {
         mockMvc.perform(get("/api/v1/orders/{orderId}", 999)
-                        .header("X-User-Id", userId))
+                        .header("Authorization", bearer(userId)))
                 .andExpect(status().isNotFound());
     }
 }
