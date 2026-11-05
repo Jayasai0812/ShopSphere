@@ -14,14 +14,18 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Locale;
+
 /**
  * Handles user registration (TASK: registration API).
  * <p>
  * The whole flow runs inside one transaction: the User, its Cart and its
  * Wishlist are persisted together (Cart/Wishlist cascade from User via
  * CascadeType.ALL). Duplicate emails race on the unique index, so the
- * {@link DataIntegrityViolationException} catch is the authoritative
- * duplicate check — the pre-check is only a fast-path UX improvement.
+ * authoritative duplicate check is the database constraint. A
+ * {@link DataIntegrityViolationException} is allowed to propagate out of
+ * the failed transaction and is translated to HTTP 409 only for the
+ * users.email unique key, in {@link GlobalExceptionHandler}.
  */
 @Service
 public class AuthService {
@@ -33,8 +37,8 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
 
     public AuthService(UserRepository userRepository,
-                       RoleRepository roleRepository,
-                       PasswordEncoder passwordEncoder) {
+            RoleRepository roleRepository,
+            PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.passwordEncoder = passwordEncoder;
@@ -42,7 +46,9 @@ public class AuthService {
 
     @Transactional
     public RegisterResponseDTO register(RegisterRequestDTO request) {
-        String email = request.email() == null ? null : request.email().trim();
+        String email = request.email() == null
+                ? null
+                : request.email().trim().toLowerCase(Locale.ROOT);
 
         // Fast-path duplicate check (concurrent requests are still caught
         // by the unique constraint + DataIntegrityViolationException below).
@@ -50,9 +56,14 @@ public class AuthService {
             throw new EmailAlreadyExistsException(email);
         }
 
+        // Get-or-create keeps registration self-sufficient on a fresh schema
+        // (the roles seed row normally comes from shopsphere_sample_data.sql).
         Role customerRole = roleRepository.findByRoleName(CUSTOMER_ROLE)
-                .orElseThrow(() -> new IllegalStateException(
-                        "CUSTOMER role not found in database"));
+                .orElseGet(() -> {
+                    Role role = new Role();
+                    role.setRoleName(CUSTOMER_ROLE);
+                    return roleRepository.save(role);
+                });
 
         User user = new User();
         user.setName(request.name().trim());
@@ -60,7 +71,8 @@ public class AuthService {
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         // Normalize: store blank phone as null.
         user.setPhone(request.phone() == null || request.phone().isBlank()
-                ? null : request.phone().trim());
+                ? null
+                : request.phone().trim());
 
         // Role is assigned server-side only — clients can never inject one.
         user.getRoles().add(customerRole);
@@ -76,12 +88,10 @@ public class AuthService {
 
         try {
             userRepository.save(user);
+            userRepository.flush(); // surface constraint violations now, not at commit
         } catch (DataIntegrityViolationException ex) {
-            // Distinguish a duplicate email (users.email unique key) from
-            // any other integrity failure instead of blanket-labelling it.
-            if (email != null && userRepository.existsByEmailIgnoreCase(email)) {
-                throw new EmailAlreadyExistsException(email);
-            }
+            // Do NOT translate inside the transaction: it may be rollback-only.
+            // Rethrow so GlobalExceptionHandler can inspect the constraint name.
             throw ex;
         }
 

@@ -108,9 +108,12 @@ class RepositoryCrudTest {
 
     @Test
     void persistsUserWithRolesAndAddresses() {
-        Role customer = new Role();
-        customer.setRoleName("CUSTOMER");
-        roleRepository.save(customer);
+        Role customer = roleRepository.findByRoleName("CUSTOMER")
+                .orElseGet(() -> {
+                    Role role = new Role();
+                    role.setRoleName("CUSTOMER");
+                    return roleRepository.save(role);
+                });
 
         User user = user("Arjun Das", "arjun@shopsphere.test");
         user.getRoles().add(customer);

@@ -1,6 +1,8 @@
 package com.shopsphere.exception;
 
+import com.shopsphere.exception.EmailAlreadyExistsException;
 import org.springframework.http.HttpStatus;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -14,6 +16,38 @@ import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    /**
+     * Runs outside the (now failed) transaction. Translates a violation of
+     * the users.email unique key into 409; every other constraint failure
+     * stays a generic 409-free 500 so we never mislabel it as a duplicate.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ProblemDetail handleDataIntegrity(DataIntegrityViolationException ex) {
+        if (isUniqueEmailViolation(ex)) {
+            return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+                    "Email already registered");
+        }
+        return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR,
+                "Data integrity violation");
+    }
+
+    private boolean isUniqueEmailViolation(DataIntegrityViolationException ex) {
+        Throwable cause = ex.getRootCause();
+        if (cause == null) {
+            return false;
+        }
+        String message = cause.getMessage() == null ? "" : cause.getMessage().toLowerCase();
+        return message.contains("users_email_key")        // H2 default name
+                || (message.contains("users") && message.contains("email")
+                        && message.contains("unique"))     // vendor-agnostic fallback
+                || (message.contains("duplicate") && message.contains("email"));
+    }
+
+    @ExceptionHandler(EmailAlreadyExistsException.class)
+    public ProblemDetail handleDuplicateEmail(EmailAlreadyExistsException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+    }
 
     @ExceptionHandler(ResourceNotFoundException.class)
     public ProblemDetail handleNotFound(ResourceNotFoundException ex) {
