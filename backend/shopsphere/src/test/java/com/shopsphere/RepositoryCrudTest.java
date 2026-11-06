@@ -135,7 +135,7 @@ class RepositoryCrudTest {
 
         User found = userRepository.findByEmail("arjun@shopsphere.test").orElseThrow();
         assertThat(found.getRoles()).extracting(Role::getRoleName).containsExactly("CUSTOMER");
-        assertThat(addressRepository.findByUserId(found.getId()))
+        assertThat(addressRepository.findByUserIdOrderByIdAsc(found.getId()))
                 .extracting(Address::getCity)
                 .containsExactly("Bengaluru");
     }

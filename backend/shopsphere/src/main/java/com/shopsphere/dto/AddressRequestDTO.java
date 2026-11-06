@@ -19,13 +19,16 @@ import jakarta.validation.constraints.Size;
  *
  * Postal code is restricted to 5-10 digits, which covers the formats
  * used by our initial markets while staying strict enough to catch
- * malformed input.
+ * malformed input. Phone must start and end with a digit (optional leading
+ * +), so it cannot be all hyphens/spaces or end in a separator.
  */
 public record AddressRequestDTO(
 
                 @NotBlank(message = "Full name is required") @Size(min = 2, max = 100, message = "Full name must be between 2 and 100 characters") String fullName,
 
-                @NotBlank(message = "Phone is required") @Pattern(regexp = "^\\+?[0-9\\-\\s]{7,20}$", message = "Phone must be a valid phone number") String phone,
+                @NotBlank(message = "Phone is required")
+                @Pattern(regexp = "^\\+?[0-9](?:[0-9\\-\\s]{5,18})[0-9]$",
+                                message = "Phone must be a valid phone number") String phone,
 
                 @NotBlank(message = "Address line 1 is required") @Size(max = 255, message = "Address line 1 must not exceed 255 characters") String addressLine1,
 

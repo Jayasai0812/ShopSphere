@@ -9,8 +9,11 @@ import com.shopsphere.entity.User;
 import com.shopsphere.exception.ResourceNotFoundException;
 import com.shopsphere.repository.AddressRepository;
 import com.shopsphere.repository.UserRepository;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -33,8 +36,19 @@ import java.util.List;
  * {@link #setDefaultAddress}, un-sets the previous default in the SAME
  * transaction — there is never a moment with zero or two defaults (a
  * user with at least one address).
- * - Deleting the default address promotes another remaining address, if
- * any exists, in the same transaction.
+ * - Deleting the default address promotes the OLDEST remaining address
+ * (lowest id) — {@code findByUserIdOrderByIdAsc} is the single
+ * deterministic ordering used for both listing and promotion.
+ *
+ * CONCURRENCY NOTE (hardening): the transactional switch-unset logic alone
+ * cannot stop two concurrent requests from both promoting their own
+ * candidate (both read the old state before either commits). The database
+ * schema guards the invariant instead: V4 adds a generated column
+ * {@code is_default_key} = IF(is_default, user_id, NULL) with a UNIQUE
+ * index, so a second default for the same user is rejected by the database
+ * itself; MySQL treats unique-index NULLs as distinct, so non-default rows
+ * never collide. The service catches the resulting
+ * DataIntegrityViolationException and maps it to 409 CONFLICT.
  */
 @Service
 public class AddressService {
@@ -54,7 +68,7 @@ public class AddressService {
         /** Lists every address owned by the authenticated user. */
         @Transactional(readOnly = true)
         public List<AddressResponseDTO> getAddresses() {
-                return addressRepository.findByUserId(currentUserId()).stream()
+                return addressRepository.findByUserIdOrderByIdAsc(currentUserId()).stream()
                                 .map(AddressService::toDto)
                                 .toList();
         }
@@ -78,7 +92,7 @@ public class AddressService {
                 User user = userRepository.findById(currentUserId())
                                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-                List<Address> existing = addressRepository.findByUserId(user.getId());
+                List<Address> existing = addressRepository.findByUserIdOrderByIdAsc(user.getId());
                 boolean isFirst = existing.isEmpty();
 
                 Address address = new Address();
@@ -94,7 +108,14 @@ public class AddressService {
                 if (address.isDefaultAddress() && !isFirst) {
                         unsetExistingDefault(user.getId(), address);
                 }
-                return toDto(addressRepository.save(address));
+                try {
+                        return toDto(addressRepository.saveAndFlush(address));
+                } catch (DataIntegrityViolationException e) {
+                        // Another concurrent request already claimed the default;
+                        // the V4 unique index rejected the second row.
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                        "Address was modified concurrently, please retry");
+                }
         }
 
         /**
@@ -139,7 +160,12 @@ public class AddressService {
                         unsetExistingDefault(address.getUser().getId(), address);
                         address.setDefaultAddress(true);
                 }
-                return toDto(addressRepository.save(address));
+                try {
+                        return toDto(addressRepository.saveAndFlush(address));
+                } catch (DataIntegrityViolationException e) {
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                        "Address was modified concurrently, please retry");
+                }
         }
 
         /**
@@ -153,7 +179,12 @@ public class AddressService {
                 if (!address.isDefaultAddress()) {
                         unsetExistingDefault(address.getUser().getId(), address);
                         address.setDefaultAddress(true);
-                        address = addressRepository.save(address);
+                        try {
+                                address = addressRepository.saveAndFlush(address);
+                        } catch (DataIntegrityViolationException e) {
+                                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                                "Address was modified concurrently, please retry");
+                        }
                 }
                 return toDto(address);
         }
@@ -170,8 +201,11 @@ public class AddressService {
                 addressRepository.delete(address);
 
                 if (wasDefault) {
-                        List<Address> remaining = addressRepository.findByUserId(userId);
+                        List<Address> remaining = addressRepository.findByUserIdOrderByIdAsc(userId);
                         if (!remaining.isEmpty()) {
+                                // Deterministic promotion: the repository orders by
+                                // created_at, then id, so the oldest remaining address
+                                // always wins instead of an arbitrary DB pick.
                                 Address promoted = remaining.get(0);
                                 promoted.setDefaultAddress(true);
                                 addressRepository.save(promoted);
@@ -196,7 +230,7 @@ public class AddressService {
          * candidate address itself. Runs inside the caller's transaction.
          */
         private void unsetExistingDefault(Long userId, Address candidate) {
-                addressRepository.findByUserId(userId).stream()
+                addressRepository.findByUserIdOrderByIdAsc(userId).stream()
                                 .filter(Address::isDefaultAddress)
                                 .filter(a -> !a.getId().equals(candidate.getId()))
                                 .forEach(a -> {

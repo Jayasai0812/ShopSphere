@@ -310,4 +310,134 @@ class AddressManagementTest {
                                 .andReturn();
                 assertThat((List<?>) JsonPath.read(list.getResponse().getContentAsString(), "$")).hasSize(1);
         }
+
+        /**
+         * Hardening (TASK-016 A): whitespace-only strings must be rejected even
+ * though @Size counts spaces as characters, and phone values made only of
+ * separators must fail. Applies to both create (POST) and update (PATCH).
+ */
+@Test
+void whitespaceOnlyValuesAreRejected() throws Exception {
+        String token = registerAndLogin("addr-ws@example.com");
+        long id = createAddress(token, "Whitespace Road 1", false);
+
+        // POST: whitespace-only required fields.
+        mockMvc.perform(post("/api/v1/users/me/addresses")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(FULL_BODY
+                                        .replace("MG Road 1", "   ")
+                                        .replace("Pune", "   ")
+                                        .replace("Jane Doe", "  ")))
+                        .andExpect(status().isBadRequest());
+
+        // POST: whitespace-only country.
+        mockMvc.perform(post("/api/v1/users/me/addresses")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(FULL_BODY.replace("\"India\"", "\"   \"")))
+                        .andExpect(status().isBadRequest());
+
+        // PATCH: whitespace-only city rejected.
+        mockMvc.perform(patch("/api/v1/users/me/addresses/" + id)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"city\":\"   \"}"))
+                        .andExpect(status().isBadRequest());
+
+        // PATCH: whitespace-only fullName rejected.
+        mockMvc.perform(patch("/api/v1/users/me/addresses/" + id)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"fullName\":\"  \"}"))
+                        .andExpect(status().isBadRequest());
+
+        // PATCH: whitespace-only state and country rejected.
+        mockMvc.perform(patch("/api/v1/users/me/addresses/" + id)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"state\":\"\\t\",\"country\":\"\\n\"}"))
+                        .andExpect(status().isBadRequest());
+
+        // Nothing changed: the address still holds its original values.
+        mockMvc.perform(get("/api/v1/users/me/addresses/" + id)
+                        .header("Authorization", "Bearer " + token))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.city").value("Pune"))
+                        .andExpect(jsonPath("$.state").value("MH"));
+}
+
+/**
+ * Hardening (TASK-016 A): phone must start AND end with a digit, so
+ * values made only of hyphens/spaces — or separators at the edges — are
+ * rejected on both create and update.
+ */
+@Test
+void phoneMadeOnlyOfSeparatorsIsRejected() throws Exception {
+        String token = registerAndLogin("addr-phone@example.com");
+        long id = createAddress(token, "Phone Road 1", false);
+
+        String[] badPhones = { "---------", "        ", "+---------", "1234-    ", "-1234567" };
+        for (String bad : badPhones) {
+                // POST
+                mockMvc.perform(post("/api/v1/users/me/addresses")
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(FULL_BODY.replace("+91 9876543210", bad)))
+                                .andExpect(status().isBadRequest());
+                // PATCH
+                mockMvc.perform(patch("/api/v1/users/me/addresses/" + id)
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"phone\":\"" + bad + "\"}"))
+                                .andExpect(status().isBadRequest());
+        }
+
+        // A legitimate phone with separators still passes.
+        mockMvc.perform(patch("/api/v1/users/me/addresses/" + id)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phone\":\"+91-98765 43210\"}"))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.phone").value("+91-98765 43210"));
+}
+
+/**
+ * Hardening (TASK-016 C): listing is deterministically ordered
+ * (oldest first), and deleting the default always promotes the oldest
+ * remaining address — not an arbitrary database pick.
+ */
+@Test
+void listingIsDeterministicAndDeletePromotesOldestRemaining() throws Exception {
+        String token = registerAndLogin("addr-order@example.com");
+        long first = createAddress(token, "Order Road 1", false);
+        long second = createAddress(token, "Order Road 2", false);
+        long third = createAddress(token, "Order Road 3", false);
+
+        MvcResult list = mockMvc.perform(get("/api/v1/users/me/addresses")
+                        .header("Authorization", "Bearer " + token))
+                        .andExpect(status().isOk())
+                        .andReturn();
+        assertThat(((List<?>) JsonPath.read(list.getResponse().getContentAsString(), "$[*].id"))
+                        .stream().map(n -> ((Number) n).longValue()).toList())
+                        .containsExactly(first, second, third);
+
+        // Delete the default (`first`) — `second` is the oldest remaining.
+        mockMvc.perform(delete("/api/v1/users/me/addresses/" + first)
+                        .header("Authorization", "Bearer " + token))
+                        .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/users/me/addresses/" + second)
+                        .header("Authorization", "Bearer " + token))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.isDefault").value(true));
+
+        MvcResult list2 = mockMvc.perform(get("/api/v1/users/me/addresses")
+                        .header("Authorization", "Bearer " + token))
+                        .andExpect(status().isOk())
+                        .andReturn();
+        assertThat(((List<?>) JsonPath.read(list2.getResponse().getContentAsString(), "$[*].id"))
+                        .stream().map(n -> ((Number) n).longValue()).toList())
+                        .containsExactly(second, third);
+        }
 }
