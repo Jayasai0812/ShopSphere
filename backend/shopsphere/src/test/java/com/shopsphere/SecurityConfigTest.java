@@ -186,8 +186,10 @@ class SecurityConfigTest {
         void adminCanDeleteProduct() throws Exception {
                 var admin = persistUser("admin-del@shopsphere.test", "ADMIN");
 
+                // TASK-019: product DELETE moved to /api/v1/admin/products/{id}
+                // (the public /products DELETE route no longer exists).
                 mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                                .delete("/api/v1/products/1")
+                                .delete("/api/v1/admin/products/1")
                                 .header("Authorization", bearerFor(admin)))
                                 .andExpect(result -> assertThat(result.getResponse().getStatus())
                                                 .isIn(204, 404)); // 204 if the row exists, 404 otherwise
