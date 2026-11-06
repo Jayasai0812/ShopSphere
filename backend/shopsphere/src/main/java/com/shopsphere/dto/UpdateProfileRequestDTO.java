@@ -18,10 +18,10 @@ import jakarta.validation.constraints.Size;
 public record UpdateProfileRequestDTO(
 
         @NotBlank(message = "Name is required")
-        @Size(max = 100, message = "Name must not exceed 100 characters")
+        @Size(min = 2, max = 100, message = "Name must be between 2 and 100 characters")
         String name,
 
         @Size(max = 20, message = "Phone must not exceed 20 characters")
-        @Pattern(regexp = "^[0-9+\\-() ]*$", message = "Phone contains invalid characters")
+        @Pattern(regexp = "^$|^\\+?[0-9\\-\\s]{7,20}$", message = "Phone must be a valid phone number")
         String phone) {
 }
