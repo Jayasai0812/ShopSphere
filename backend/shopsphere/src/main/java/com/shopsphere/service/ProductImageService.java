@@ -49,6 +49,11 @@ public class ProductImageService {
         private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
                         "jpg", "jpeg", "png", "webp");
 
+        /** Decompression-bomb guard: no single dimension exceeds this. */
+        private static final int MAX_DIMENSION_PIXELS = 8000;
+        /** Decompression-bomb guard: total decoded pixels cap. */
+        private static final long MAX_TOTAL_PIXELS = 24_000_000L; // ~24 MP
+
         private final ProductImageRepository imageRepository;
         private final ProductRepository productRepository;
         private final StorageProperties storageProperties;
@@ -65,6 +70,7 @@ public class ProductImageService {
 
         @Transactional(readOnly = true)
         public List<ProductImageResponseDTO> listImages(Long productId) {
+                requireProduct(productId);
                 return imageRepository.findByProductIdOrderBySortOrderAsc(productId)
                                 .stream().map(ProductImageService::toResponse).toList();
         }
@@ -73,9 +79,7 @@ public class ProductImageService {
 
         @Transactional
         public ProductImageResponseDTO uploadImage(Long productId, MultipartFile file) {
-                Product product = productRepository.findById(productId)
-                                .orElseThrow(() -> new ResourceNotFoundException(
-                                                "Product not found with id: " + productId));
+                Product product = requireProduct(productId);
 
                 validateFile(file);
 
@@ -96,14 +100,23 @@ public class ProductImageService {
                 }
 
                 String storedFileName = storeFile(file);
-                ProductImage image = new ProductImage();
-                image.setProduct(product);
-                image.setImageUrl(storageProperties.publicPrefix() + "/" + storedFileName);
-                image.setSortOrder(existing.size());
-                image.setPrimaryImage(existing.isEmpty() ? Boolean.TRUE : null);
-                image = imageRepository.save(image);
-
-                return toResponse(image);
+                try {
+                        ProductImage image = new ProductImage();
+                        image.setProduct(product);
+                        image.setImageUrl(storageProperties.publicPrefix() + "/"
+                                        + storedFileName);
+                        image.setSortOrder(existing.size());
+                        image.setPrimaryImage(existing.isEmpty() ? Boolean.TRUE : null);
+                        image = imageRepository.save(image);
+                        // Flush NOW so a constraint/DB failure surfaces inside this
+                        // try-block and the just-written file gets cleaned up —
+                        // otherwise the file would be orphaned on disk.
+                        imageRepository.flush();
+                        return toResponse(image);
+                } catch (RuntimeException e) {
+                        deleteFileQuietly(storedFileName);
+                        throw e;
+                }
         }
 
         // ── primary ────────────────────────────────────────────────────────
@@ -139,6 +152,7 @@ public class ProductImageService {
         @Transactional
         public List<ProductImageResponseDTO> reorderImages(Long productId,
                         List<Long> orderedIds) {
+                requireProduct(productId);
                 List<ProductImage> images = imageRepository.findByProductIdOrderBySortOrderAsc(productId);
                 if (orderedIds == null
                                 || orderedIds.size() != images.size()
@@ -181,7 +195,16 @@ public class ProductImageService {
                 }
                 imageRepository.saveAll(remaining);
 
-                deleteFileQuietly(storedFileName);
+                // Physical deletion happens only AFTER the transaction commits:
+                // if the commit rolls back, the row survives and so must its file.
+                org.springframework.transaction.support.TransactionSynchronizationManager
+                                .registerSynchronization(
+                                                new org.springframework.transaction.support.TransactionSynchronization() {
+                                                        @Override
+                                                        public void afterCommit() {
+                                                                deleteFileQuietly(storedFileName);
+                                                        }
+                                                });
         }
 
         // ── validation & storage helpers ───────────────────────────────────
@@ -210,6 +233,68 @@ public class ProductImageService {
                 if (!ALLOWED_EXTENSIONS.contains(extension)) {
                         throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
                                         "Image file extension must be jpg, jpeg, png or webp");
+                }
+                validateDecodableImage(file, contentType);
+        }
+
+        /**
+         * Actual image-content validation: the bytes must decode as a real
+         * image of the declared type. A six-byte PNG header or a text file
+         * with an image MIME type is rejected here. Uses the JDK ImageIO for
+         * JPEG/PNG and the registered TwelveMonkeys WebP reader; also caps
+         * dimensions/total pixels to guard against decompression bombs.
+         */
+        private void validateDecodableImage(MultipartFile file, String contentType) {
+                try (InputStream in = file.getInputStream()) {
+                        javax.imageio.ImageIO.setUseCache(false);
+                        javax.imageio.stream.ImageInputStream stream =
+                                        javax.imageio.ImageIO.createImageInputStream(in);
+                        if (stream == null) {
+                                throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                                                "File is not a decodable image");
+                        }
+                        java.util.Iterator<javax.imageio.ImageReader> readers =
+                                        javax.imageio.ImageIO.getImageReaders(stream);
+                        if (!readers.hasNext()) {
+                                throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                                                "File is not a decodable image");
+                        }
+                        javax.imageio.ImageReader reader = readers.next();
+                        // The decoded format must match the declared content type.
+                        String readerMime = reader.getOriginatingProvider() == null
+                                        ? null
+                                        : reader.getOriginatingProvider().getMIMETypes()[0]
+                                                        .toLowerCase(Locale.ROOT);
+                        boolean typeMatches = switch (contentType) {
+                                case "image/jpeg" -> "image/jpeg".equals(readerMime);
+                                case "image/png" -> "image/png".equals(readerMime);
+                                case "image/webp" -> readerMime != null
+                                                && readerMime.contains("webp");
+                                default -> false;
+                        };
+                        if (!typeMatches) {
+                                throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                                                "File content does not match the declared image type");
+                        }
+                        try {
+                                reader.setInput(stream, true, true);
+                                int width = reader.getWidth(0);
+                                int height = reader.getHeight(0);
+                                if (width <= 0 || height <= 0
+                                                || width > MAX_DIMENSION_PIXELS
+                                                || height > MAX_DIMENSION_PIXELS
+                                                || (long) width * height > MAX_TOTAL_PIXELS) {
+                                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                                        "Image dimensions exceed the allowed limit");
+                                }
+                        } finally {
+                                reader.dispose();
+                        }
+                } catch (ResponseStatusException e) {
+                        throw e;
+                } catch (Exception e) {
+                        throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                                        "File is not a decodable image");
                 }
         }
 
@@ -263,6 +348,13 @@ public class ProductImageService {
                                 .orElseThrow(() -> new ResourceNotFoundException(
                                                 "Image not found with id: " + imageId
                                                                 + " for product: " + productId));
+        }
+
+        /** 404 when the product does not exist (used by list/reorder/upload). */
+        private Product requireProduct(Long productId) {
+                return productRepository.findById(productId)
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Product not found with id: " + productId));
         }
 
         private static Set<Long> imageIds(List<ProductImage> images) {

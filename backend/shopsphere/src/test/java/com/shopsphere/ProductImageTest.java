@@ -3,6 +3,7 @@ package com.shopsphere;
 import com.shopsphere.entity.Category;
 import com.shopsphere.entity.Inventory;
 import com.shopsphere.entity.Product;
+import com.shopsphere.entity.ProductImage;
 import com.shopsphere.entity.User;
 import com.shopsphere.repository.CategoryRepository;
 import com.shopsphere.repository.ProductImageRepository;
@@ -90,9 +91,24 @@ class ProductImageTest {
                 seeded = true;
         }
 
+        /** Generates a real, decodable PNG at test runtime via ImageIO. */
+        private static byte[] realPng() {
+                try {
+                        var img = new java.awt.image.BufferedImage(
+                                        1, 1, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                        img.setRGB(0, 0, 0xFF000000);
+                        var out = new java.io.ByteArrayOutputStream();
+                        javax.imageio.ImageIO.write(img, "png", out);
+                        return out.toByteArray();
+                } catch (java.io.IOException e) {
+                        throw new IllegalStateException(e);
+                }
+        }
+
+        private static final byte[] REAL_PNG = realPng();
+
         private MockMultipartFile png(String name) {
-                return new MockMultipartFile("file", name, "image/png",
-                                new byte[] { (byte) 0x89, 'P', 'N', 'G', '\r', '\n' });
+                return new MockMultipartFile("file", name, "image/png", REAL_PNG);
         }
 
         private static final String ADMIN_AUTH = "withAdmin";
@@ -183,6 +199,36 @@ class ProductImageTest {
                                                 "image/png", new byte[2 * 1024 * 1024 + 1]))
                                 .with(admin()))
                                 .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        void rejectsCorruptedAndSpoofedContent() throws Exception {
+                seed();
+                // Truncated PNG header only — passes extension/MIME checks but
+                // does not decode → 415.
+                byte[] corruptedHeader = java.util.Arrays.copyOf(REAL_PNG, 6);
+                mockMvc.perform(multipart("/api/v1/admin/products/{id}/images", productId)
+                                .file(new MockMultipartFile("file", "corrupt.png",
+                                                "image/png", corruptedHeader))
+                                .with(admin()))
+                                .andExpect(status().isUnsupportedMediaType());
+                // PNG bytes declared as JPEG → 415 (content/MIME spoofing).
+                mockMvc.perform(multipart("/api/v1/admin/products/{id}/images", productId)
+                                .file(new MockMultipartFile("file", "spoof.jpg",
+                                                "image/jpeg", REAL_PNG))
+                                .with(admin()))
+                                .andExpect(status().isUnsupportedMediaType());
+
+                // Garbage bytes with an image type → 415.
+                mockMvc.perform(multipart("/api/v1/admin/products/{id}/images", productId)
+                                .file(new MockMultipartFile("file", "junk.png",
+                                                "image/png", "not-an-image".getBytes()))
+                                .with(admin()))
+                                .andExpect(status().isUnsupportedMediaType());
+
+                // Nothing was persisted for this product.
+                assertThat(imageRepository.findByProductIdOrderBySortOrderAsc(productId))
+                                .isEmpty();
         }
 
         @Test
@@ -304,5 +350,45 @@ class ProductImageTest {
                 mockMvc.perform(multipart("/api/v1/admin/products/{id}/images", productId)
                                 .file(png("over.png")).with(admin()))
                                 .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        void multipleUploadsKeepExactlyOnePrimary() throws Exception {
+                seed();
+                long first = upload("m1.png", "image/png", png("m1.png").getBytes());
+                long second = upload("m2.png", "image/png", png("m2.png").getBytes());
+                long third = upload("m3.png", "image/png", png("m3.png").getBytes());
+
+                // The first upload is primary; uploads 2 and 3 are not.
+                var all = imageRepository.findByProductIdOrderBySortOrderAsc(productId);
+                assertThat(all).hasSize(3);
+                assertThat(all.stream().filter(ProductImage::isPrimaryImage)).hasSize(1);
+                assertThat(all.get(0).getId()).isEqualTo(first);
+                assertThat(all.get(0).isPrimaryImage()).isTrue();
+                assertThat(all.get(1).getId()).isEqualTo(second);
+                assertThat(all.get(1).isPrimaryImage()).isFalse();
+                assertThat(all.get(2).getId()).isEqualTo(third);
+                assertThat(all.get(2).isPrimaryImage()).isFalse();
+
+                // Public response also exposes exactly one primary.
+                mockMvc.perform(get("/api/v1/products/" + productId))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.images.length()").value(3))
+                                .andExpect(jsonPath("$.images[0].id").value((int) first))
+                                .andExpect(jsonPath("$.images[0].isPrimary").value(true));
+        }
+
+        @Test
+        void nonexistentProductReturns404ForListAndReorder() throws Exception {
+                seed();
+                mockMvc.perform(get("/api/v1/admin/products/{id}/images", 999999)
+                                .with(admin()))
+                                .andExpect(status().isNotFound());
+
+                mockMvc.perform(patch("/api/v1/admin/products/{id}/images/order", 999999)
+                                .with(admin())
+                                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                                .content("[1]"))
+                                .andExpect(status().isNotFound());
         }
 }

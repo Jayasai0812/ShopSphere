@@ -88,6 +88,14 @@
 			<artifactId>jjwt-api</artifactId>
 			<version>0.13.0</version>
 		</dependency>
+		<!-- WebP decoding for upload content validation (JPEG/PNG come from
+			  the JDK ImageIO; WebP support is provided by this adapter). -->
+		<dependency>
+			<groupId>com.twelvemonkeys.imageio</groupId>
+			<artifactId>imageio-webp</artifactId>
+			<version>3.12.0</version>
+			<scope>runtime</scope>
+		</dependency>
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
 			<artifactId>jjwt-impl</artifactId>
