@@ -3,7 +3,7 @@ package com.shopsphere.dto;
 /**
  * Response payload for a successful login.
  *
- * @param token     the signed JWT; the client sends it as
+ * @param accessToken the signed JWT; the client sends it as
  *                  {@code Authorization: Bearer <token>}
  * @param tokenType always {@code Bearer}
  * @param expiresIn seconds until the token expires. Sourced from the same
@@ -12,8 +12,8 @@ package com.shopsphere.dto;
  * @param user      non-sensitive identity data (never the password or hash)
  */
 public record LoginResponseDTO(
-        String token,
-        String tokenType,
-        long expiresIn,
-        LoginUserDTO user) {
+                String accessToken,
+                String tokenType,
+                long expiresIn,
+                LoginUserDTO user) {
 }

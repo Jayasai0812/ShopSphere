@@ -97,7 +97,9 @@ public class JwtService {
      */
     public boolean isTokenValid(String token) {
         try {
-            return parseToken(token).getExpiration().after(new Date());
+            var claims = parseToken(token);
+            var expiration = claims.getExpiration();
+            return expiration != null && expiration.after(new Date());
         } catch (JwtException | IllegalArgumentException e) {
             return false;
         }

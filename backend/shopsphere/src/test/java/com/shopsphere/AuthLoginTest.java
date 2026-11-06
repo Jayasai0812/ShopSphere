@@ -99,7 +99,7 @@ class AuthLoginTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(loginBody("login-jane@example.com", PASSWORD)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
                 .andExpect(jsonPath("$.expiresIn").value(3600))
                 .andExpect(jsonPath("$.user.email").value("login-jane@example.com"))
@@ -216,7 +216,7 @@ class AuthLoginTest {
                 .andReturn();
 
         String responseBody = loginResult.getResponse().getContentAsString();
-        String token = com.jayway.jsonpath.JsonPath.read(responseBody, "$.token");
+        String token = com.jayway.jsonpath.JsonPath.read(responseBody, "$.accessToken");
 
         // GET /api/v1/cart is authenticated-only and resolves the current user
         // through the JWT filter + CurrentUserProvider.
