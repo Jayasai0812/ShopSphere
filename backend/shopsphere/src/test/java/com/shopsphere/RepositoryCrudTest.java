@@ -193,7 +193,7 @@ class RepositoryCrudTest {
                 .singleElement()
                 .extracting(CartItem::getQuantity)
                 .isEqualTo(2);
-        assertThat(wishlistItemRepository.findByWishlistId(wishlist.getId())).hasSize(1);
+        assertThat(wishlistItemRepository.findByWishlistIdOrderByIdAsc(wishlist.getId())).hasSize(1);
     }
 
     @Test
