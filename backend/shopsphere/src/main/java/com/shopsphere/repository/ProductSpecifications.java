@@ -38,15 +38,28 @@ public final class ProductSpecifications {
                 return (root, query, cb) -> cb.isTrue(root.get("active"));
         }
 
-        /** Case-insensitive match on name OR description, with % and _ escaped. */
+        /**
+         * Case-insensitive AND-of-tokens match: the query is split on
+         * whitespace and EVERY token must match the name OR the description
+         * (each token independently). % and _ are escaped.
+         */
         public static Specification<Product> textSearch(String q) {
                 return (root, query, cb) -> {
-                        String escaped = escapeLike(q.toLowerCase());
-                        String pattern = "%" + escaped + "%";
                         char escapeChar = '\\';
-                        Predicate inName = cb.like(cb.lower(root.get("name")), pattern, escapeChar);
-                        Predicate inDescription = cb.like(cb.lower(root.get("description")), pattern, escapeChar);
-                        return cb.or(inName, inDescription);
+                        Predicate[] tokens = java.util.Arrays
+                                        .stream(q.toLowerCase().trim().split("\\s+"))
+                                        .filter(token -> !token.isEmpty())
+                                        .map(token -> {
+                                                String pattern = "%" + escapeLike(token) + "%";
+                                                Predicate inName = cb.like(cb.lower(root.get("name")),
+                                                                pattern, escapeChar);
+                                                Predicate inDescription = cb.like(
+                                                                cb.lower(root.get("description")),
+                                                                pattern, escapeChar);
+                                                return cb.or(inName, inDescription);
+                                        })
+                                        .toArray(Predicate[]::new);
+                        return cb.and(tokens);
                 };
         }
 

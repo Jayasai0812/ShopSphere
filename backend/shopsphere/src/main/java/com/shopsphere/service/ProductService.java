@@ -330,7 +330,7 @@ public class ProductService {
                             .orElseThrow(() -> new ResourceNotFoundException(
                                             "Product not found with id: " + id));
             return toResponse(product, reviewService.summarize(id),
-                            stockOf(product));
+                            stockOf(product), imagesOf(id));
     }
 
     /** Admin product details: inactive products ARE visible to admins. */
@@ -340,7 +340,25 @@ public class ProductService {
                             .orElseThrow(() -> new ResourceNotFoundException(
                                             "Product not found with id: " + id));
             return toResponse(product, reviewService.summarize(id),
-                            stockOf(product));
+                            stockOf(product), imagesOf(id));
+    }
+
+    /** Image metadata of one product (single grouped query). */
+    private List<com.shopsphere.dto.ProductImageResponseDTO> imagesOf(Long productId) {
+            var images = productImageRepository
+                            .findByProductIdOrderBySortOrderAsc(productId)
+                            .stream().map(com.shopsphere.service.ProductImageService::toResponse)
+                            .toList();
+            // Primary image first.
+            List<com.shopsphere.dto.ProductImageResponseDTO> ordered =
+                            new java.util.ArrayList<>(images);
+            for (int i = 0; i < ordered.size(); i++) {
+                    if (ordered.get(i).primaryImage() && i > 0) {
+                            var primary = ordered.remove(i);
+                            ordered.add(0, primary);
+                    }
+            }
+            return ordered;
     }
 
     /**

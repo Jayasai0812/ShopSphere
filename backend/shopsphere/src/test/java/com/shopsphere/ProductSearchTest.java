@@ -15,6 +15,8 @@ import com.shopsphere.repository.OrderRepository;
 import com.shopsphere.repository.ProductRepository;
 import com.shopsphere.repository.ReviewRepository;
 import com.shopsphere.repository.UserRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -58,6 +60,14 @@ class ProductSearchTest {
         @Autowired
         private ReviewRepository reviewRepository;
 
+        @PersistenceContext
+        private EntityManager entityManager;
+
+        @Autowired
+        private org.springframework.transaction.PlatformTransactionManager transactionManager;
+
+        private org.springframework.transaction.support.TransactionTemplate transactionTemplate;
+
         private static boolean seeded;
 
         // Seeded once per JVM (static flag); the ids must therefore also be
@@ -74,9 +84,44 @@ class ProductSearchTest {
         private static String suffix;
 
         private void seed() {
+                if (transactionTemplate == null) {
+                        transactionTemplate = new org.springframework.transaction.support.TransactionTemplate(
+                                        transactionManager);
+                }
                 if (seeded) {
                         return;
                 }
+                // Other test classes in the same JVM (e.g. ProductImageTest)
+                // commit products/orders/reviews into this shared in-memory DB
+                // via DB_CLOSE_DELAY=-1. Wipe every catalog-affecting row so the
+                // assertions about sizes, page contents and sort positions hold.
+                transactionTemplate.executeWithoutResult(status -> {
+                        entityManager.clear();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM payments").executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM order_items").executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM orders").executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM reviews").executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM product_images").executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM cart_items").executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM carts").executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM wishlist_items").executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM wishlists").executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM inventory").executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM products").executeUpdate();
+                        entityManager.clear();
+                });
+
                 User seller = user("search-seller@shopsphere.test", "Search Seller");
                 User reviewer = user("search-reviewer@shopsphere.test", "Search Reviewer");
                 User secondReviewer = user("search-reviewer2@shopsphere.test", "Second Reviewer");

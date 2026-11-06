@@ -1,0 +1,5 @@
+ALTER TABLE addresses
+    ADD COLUMN full_name VARCHAR(100) NOT NULL AFTER user_id,
+    ADD COLUMN phone VARCHAR(20) NOT NULL AFTER full_name,
+    ADD COLUMN line2 VARCHAR(255) NULL AFTER line1,
+    ADD COLUMN address_type VARCHAR(10) NOT NULL DEFAULT 'HOME' AFTER country;

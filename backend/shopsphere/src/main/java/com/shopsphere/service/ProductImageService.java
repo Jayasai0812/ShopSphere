@@ -100,7 +100,7 @@ public class ProductImageService {
                 image.setProduct(product);
                 image.setImageUrl(storageProperties.publicPrefix() + "/" + storedFileName);
                 image.setSortOrder(existing.size());
-                image.setPrimaryImage(!existing.isEmpty());
+                image.setPrimaryImage(existing.isEmpty() ? Boolean.TRUE : null);
                 image = imageRepository.save(image);
 
                 return toResponse(image);
@@ -118,7 +118,11 @@ public class ProductImageService {
                                 .findByProductIdAndPrimaryImageTrue(productId)
                                 .orElse(null);
                 if (current != null) {
-                        current.setPrimaryImage(false);
+                        // Flush BEFORE assigning the new primary: the composite
+                        // unique (product_id, is_primary) forbids two TRUE rows,
+                        // and Hibernate's dirty-check order is not guaranteed.
+                        current.setPrimaryImage(null);
+                        imageRepository.saveAndFlush(current);
                 }
                 target.setPrimaryImage(true);
                 imageRepository.saveAndFlush(target);
@@ -173,7 +177,7 @@ public class ProductImageService {
                         remaining.get(i).setSortOrder(i);
                 }
                 if (wasPrimary && !remaining.isEmpty()) {
-                        remaining.get(0).setPrimaryImage(true);
+                        remaining.get(0).setPrimaryImage(Boolean.TRUE);
                 }
                 imageRepository.saveAll(remaining);
 

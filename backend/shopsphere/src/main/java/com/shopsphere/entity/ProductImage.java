@@ -48,6 +48,10 @@ public class ProductImage {
     @Column(name = "sort_order", nullable = false)
     private int sortOrder;
 
-    @Column(name = "is_primary", nullable = false)
-    private boolean primaryImage = false;
+    @Column(name = "is_primary")
+    private Boolean primaryImage;
+
+    public boolean isPrimaryImage() {
+        return Boolean.TRUE.equals(primaryImage);
+    }
 }
