@@ -131,8 +131,13 @@ public class ProductService {
         if (!categoryRepository.existsById(categoryId)) {
             throw new ResourceNotFoundException("Category not found with id: " + categoryId);
         }
-        return productRepository.findByCategoryId(categoryId)
-                .stream().map(p -> toResponse(p, reviewService.summarize(p.getId()))).toList();
+        List<Product> products = productRepository.findByCategoryId(categoryId);
+        // ONE grouped query for the whole category's rating summaries (no N+1).
+        var ratings = reviewService.summarizeAll(
+                products.stream().map(Product::getId).toList());
+        return products.stream()
+                .map(p -> toResponse(p, ratings.get(p.getId())))
+                .toList();
     }
 
     private ProductResponseDTO toResponse(Product product) {

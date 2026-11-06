@@ -57,17 +57,21 @@ public class SecurityConfig {
                                 .authorizeHttpRequests(auth -> auth
                                                 // ── public: health + auth endpoints ─────────────────
                                                 .requestMatchers("/api/v1/health", "/api/v1/auth/**").permitAll()
-                                                // ── public browsing: catalog reads ──────────────────
+                                                // ── reviews (TASK-018): matched BEFORE the broad
+                                                // catalog rules. Spring Security applies the FIRST
+                                                // matching rule, so these must precede both the public
+                                                // GET /products/** and the admin-only POST /products/**
+                                                // matchers or they would be shadowed by them.
+                                                //
+                                                // Public: reading the approved review list of a product.
                                                 .requestMatchers(HttpMethod.GET,
-                                                                "/api/v1/products/**", "/api/v1/categories/**")
+                                                                "/api/v1/products/*/reviews")
                                                 .permitAll()
-                                                // ── reviews (TASK-018): customers POST/PUT/DELETE their
-                                                // own; reading is public. Must be matched BEFORE the
-                                                // generic /products/** write rules below, which would
-                                                // otherwise demand ADMIN for review submission.
+                                                // Authenticated only: /reviews/me belongs to its author.
+                                                // It must never fall under the public catalog GET rule.
                                                 .requestMatchers(HttpMethod.GET,
-                                                                "/api/v1/products/*/reviews/*")
-                                                .permitAll()
+                                                                "/api/v1/products/*/reviews/me")
+                                                .authenticated()
                                                 .requestMatchers(HttpMethod.POST,
                                                                 "/api/v1/products/*/reviews")
                                                 .authenticated()
@@ -77,7 +81,11 @@ public class SecurityConfig {
                                                 .requestMatchers(HttpMethod.DELETE,
                                                                 "/api/v1/products/*/reviews/me")
                                                 .authenticated()
-                                                // ── admin-only: catalog writes ──────────────────────
+                                                // ── public browsing: catalog reads ──────────────────
+                                                .requestMatchers(HttpMethod.GET,
+                                                                "/api/v1/products/**", "/api/v1/categories/**")
+                                                .permitAll()
+                                                // ── admin-only: catalog writes ────────────────────────
                                                 .requestMatchers(HttpMethod.POST,
                                                                 "/api/v1/products/**", "/api/v1/categories/**")
                                                 .hasRole("ADMIN")

@@ -142,8 +142,11 @@ class ReviewTest {
 
         @Test
         void getWithoutTokenReturns401() throws Exception {
-                mockMvc.perform(get("/api/v1/products/1/reviews"))
-                                .andExpect(status().isOk()); // public list is open browsing
+                // Unknown product: the public list endpoint returns 404 for a
+                // nonexistent product (TASK-018 improvement), which still proves
+                // the route is publicly reachable — 401 would mean auth blocked it.
+                mockMvc.perform(get("/api/v1/products/999999/reviews"))
+                                .andExpect(status().isNotFound());
 
                 mockMvc.perform(post("/api/v1/products/1/reviews")
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -186,14 +189,37 @@ class ReviewTest {
                                         .andExpect(status().isBadRequest());
                 }
 
-                // Fractional rating sent as a string: type mismatch → 400.
-                // (Numeric 3.5 is coerced to 3 by Jackson's float-to-int
-                // default, so it cannot be distinguished from a valid 3 at the
-                // server; string form proves non-integer input is rejected.)
+                // Numeric fractional rating: BigDecimal preserves the decimal
+                // form so @Digits(fraction = 0) rejects it with 400 — this was
+                // the bypass in the original Integer-based DTO.
                 mockMvc.perform(post("/api/v1/products/" + productId + "/reviews")
                                 .header("Authorization", "Bearer " + token)
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content("{\"rating\":\"3.5\"}"))
+                                .content("{\"rating\":3.5}"))
+                                .andExpect(status().isBadRequest());
+
+                // A valid whole-number rating for the SAME purchaser must still
+                // work, proving the rejection above isn't a blanket block.
+                mockMvc.perform(post("/api/v1/products/" + productId + "/reviews")
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"rating\":3}"))
+                                .andExpect(status().isCreated())
+                                .andExpect(jsonPath("$.rating").value(3));
+
+                // Boundary values as JSON numbers: 0 and 6 both rejected.
+                mockMvc.perform(delete("/api/v1/products/" + productId + "/reviews/me")
+                                .header("Authorization", "Bearer " + token))
+                                .andExpect(status().isNoContent());
+                mockMvc.perform(post("/api/v1/products/" + productId + "/reviews")
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"rating\":0}"))
+                                .andExpect(status().isBadRequest());
+                mockMvc.perform(post("/api/v1/products/" + productId + "/reviews")
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"rating\":6}"))
                                 .andExpect(status().isBadRequest());
 
                 // Missing rating entirely.
@@ -366,5 +392,46 @@ class ReviewTest {
                                 .andExpect(status().isOk())
                                 .andReturn();
                 return JsonPath.read(login.getResponse().getContentAsString(), "$.accessToken");
+        }
+
+        /**
+         * TASK-018 fix A: /reviews/me must NOT fall under the public
+         * catalog GET rule. Proves all four required access outcomes.
+         */
+        @Test
+        void reviewsMeIsAuthenticatedOnly() throws Exception {
+                String authorEmail = "rev-me-author@example.com";
+                String authorToken = registerAndLogin(authorEmail);
+                long productId = createProduct("REV-SKU-008");
+                createDeliveredOrder(userByEmail(authorEmail),
+                                productRepository.findById(productId).orElseThrow());
+
+                mockMvc.perform(post("/api/v1/products/" + productId + "/reviews")
+                                .header("Authorization", "Bearer " + authorToken)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"rating\":4,\"comment\":\"Mine\"}"))
+                                .andExpect(status().isCreated());
+
+                // 1. Public review list without a token → 200 (stays public).
+                mockMvc.perform(get("/api/v1/products/" + productId + "/reviews"))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.content.length()").value(0)); // nothing approved yet
+
+                // 2. /reviews/me without a token → 401, NOT 200/404.
+                mockMvc.perform(get("/api/v1/products/" + productId + "/reviews/me"))
+                                .andExpect(status().isUnauthorized());
+
+                // 3. Author's own token → 200.
+                mockMvc.perform(get("/api/v1/products/" + productId + "/reviews/me")
+                                .header("Authorization", "Bearer " + authorToken))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.rating").value(4));
+
+                // 4. Another user's token → 404 (their own review doesn't exist;
+                // existence of the author's review is not leaked).
+                String strangerToken = registerAndLogin("rev-me-stranger@example.com");
+                mockMvc.perform(get("/api/v1/products/" + productId + "/reviews/me")
+                                .header("Authorization", "Bearer " + strangerToken))
+                                .andExpect(status().isNotFound());
         }
 }

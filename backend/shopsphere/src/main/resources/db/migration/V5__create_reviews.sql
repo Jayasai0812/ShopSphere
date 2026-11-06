@@ -10,6 +10,14 @@
 --                          the product's public average rating.
 --   created_at/updated_at — same audit columns as other entities.
 --
+-- Note on @Lob vs TEXT: the entity maps comment with @Lob, which Hibernate
+-- generates as CLOB/longtext on MySQL — consistent with the TEXT column
+-- created here for MySQL (TEXT is MySQL's small CLOB). H2 (tests) also maps
+-- both to CLOB-compatible types. Still verify with
+-- spring.jpa.hibernate.ddl-auto=validate against a real MySQL schema during
+-- deployment rehearsal; the H2 test run alone does not prove MySQL
+-- compatibility.
+--
 -- Note: still NOT wired to Flyway (no flyway dependency configured).
 -- Execute manually against shopsphere_db:
 --   mysql -u root -p shopsphere_db < V5__create_reviews.sql

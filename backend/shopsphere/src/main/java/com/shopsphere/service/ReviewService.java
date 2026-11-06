@@ -7,7 +7,6 @@ import com.shopsphere.dto.ReviewResponseDTO;
 import com.shopsphere.entity.Product;
 import com.shopsphere.entity.Review;
 import com.shopsphere.entity.ReviewStatus;
-import com.shopsphere.entity.User;
 import com.shopsphere.exception.ResourceNotFoundException;
 import com.shopsphere.repository.OrderItemRepository;
 import com.shopsphere.repository.ProductRepository;
@@ -99,10 +98,17 @@ public class ReviewService {
                 Review review = new Review();
                 review.setUser(userRepository.getReferenceById(userId));
                 review.setProduct(product);
-                review.setRating(requireValidRating(request.rating()));
+                review.setRating(requireRating(request));
                 review.setComment(normalizeComment(request.comment()));
                 review.setStatus(ReviewStatus.PENDING);
-                return toDto(reviewRepository.save(review), null);
+                try {
+                        return toDto(reviewRepository.saveAndFlush(review), null);
+                } catch (org.springframework.dao.DataIntegrityViolationException e) {
+                        // Two concurrent submissions both passed the exists-check;
+                        // uk_reviews_user_product rejected the second insert.
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                        "You have already reviewed this product");
+                }
         }
 
         /** Returns the caller's own review of a product, or 404. */
@@ -115,14 +121,6 @@ public class ReviewService {
                 return toDto(review, null);
         }
 
-        private int requireValidRating(Integer rating) {
-                if (rating == null || rating < 1 || rating > 5) {
-                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                                        "Rating must be a whole number from 1 to 5");
-                }
-                return rating;
-        }
-
         /** Updates the caller's own review; returns it to PENDING. */
         @Transactional
         public ReviewResponseDTO updateMyReview(Long productId, ReviewRequestDTO request) {
@@ -131,10 +129,21 @@ public class ReviewService {
                                 .orElseThrow(() -> new ResourceNotFoundException(
                                                 "You have not reviewed this product"));
 
-                review.setRating(requireValidRating(request.rating()));
+                review.setRating(requireRating(request));
                 review.setComment(normalizeComment(request.comment()));
                 review.setStatus(ReviewStatus.PENDING);
                 return toDto(reviewRepository.save(review), null);
+        }
+
+        /** Extracts a valid 1..5 integer rating; a missing (null) rating is
+         *  a 400, not an NPE — bean validation already rejects out-of-range
+         *  and fractional values on the BigDecimal field. */
+        private int requireRating(ReviewRequestDTO request) {
+                if (request.rating() == null) {
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                        "Rating is required");
+                }
+                return request.ratingValue();
         }
 
         /** Deletes the caller's own review; anyone else's is 404. */
@@ -147,9 +156,14 @@ public class ReviewService {
                 reviewRepository.delete(review);
         }
 
-        /** Public approved reviews for a product, newest first. */
+        /** Public approved reviews for a product, newest first. The product
+         *  must exist — a review list is meaningless for an unknown product. */
         @Transactional(readOnly = true)
         public Page<ReviewResponseDTO> getPublicReviews(Long productId, Pageable pageable) {
+                if (!productRepository.existsById(productId)) {
+                        throw new ResourceNotFoundException(
+                                        "Product not found with id: " + productId);
+                }
                 Page<Review> page = reviewRepository.findByProductIdAndStatusOrderByIdDesc(
                                 productId, ReviewStatus.APPROVED,
                                 PageRequest.of(pageable.getPageNumber(), PUBLIC_PAGE_SIZE,
@@ -159,12 +173,17 @@ public class ReviewService {
 
         // ── admin moderation endpoints ─────────────────────────────────────
 
-        /** All reviews regardless of status (moderation queue). */
+        /** All reviews regardless of status (moderation queue), newest first. */
         @Transactional(readOnly = true)
         public Page<ReviewResponseDTO> getAllReviews(ReviewStatus status, Pageable pageable) {
+                Pageable sorted = pageable.getSort().isSorted() ? pageable
+                                : PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(),
+                                                org.springframework.data.domain.Sort.by(
+                                                                org.springframework.data.domain.Sort.Direction.DESC,
+                                                                "id"));
                 Page<Review> page = status == null
-                                ? reviewRepository.findAll(pageable)
-                                : reviewRepository.findByStatusOrderByIdDesc(status, pageable);
+                                ? reviewRepository.findAll(sorted)
+                                : reviewRepository.findByStatusOrderByIdDesc(status, sorted);
                 return toAuthorResolvedPage(page);
         }
 
