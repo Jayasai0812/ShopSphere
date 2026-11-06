@@ -24,13 +24,16 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final UserRepository userRepository;
+    private final com.shopsphere.service.ReviewService reviewService;
 
     public ProductService(ProductRepository productRepository,
                           CategoryRepository categoryRepository,
-                          UserRepository userRepository) {
+                          UserRepository userRepository,
+                          com.shopsphere.service.ReviewService reviewService) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
         this.userRepository = userRepository;
+        this.reviewService = reviewService;
     }
 
     public ProductResponseDTO createProduct(ProductRequestDTO request) {
@@ -108,13 +111,17 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public Page<ProductResponseDTO> getAllProducts(Pageable pageable) {
-        return productRepository.findAll(pageable).map(this::toResponse);
+        Page<Product> page = productRepository.findAll(pageable);
+        // ONE grouped query for all rating summaries on the page (no N+1).
+        var ratings = reviewService.summarizeAll(
+                page.getContent().stream().map(Product::getId).toList());
+        return page.map(p -> toResponse(p, ratings.get(p.getId())));
     }
 
     @Transactional(readOnly = true)
     public ProductResponseDTO getProductById(Long id) {
         return productRepository.findById(id)
-                .map(this::toResponse)
+                .map(p -> toResponse(p, reviewService.summarize(id)))
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Product not found with id: " + id));
     }
@@ -125,10 +132,15 @@ public class ProductService {
             throw new ResourceNotFoundException("Category not found with id: " + categoryId);
         }
         return productRepository.findByCategoryId(categoryId)
-                .stream().map(this::toResponse).toList();
+                .stream().map(p -> toResponse(p, reviewService.summarize(p.getId()))).toList();
     }
 
     private ProductResponseDTO toResponse(Product product) {
+        return toResponse(product, reviewService.summarize(product.getId()));
+    }
+
+    private ProductResponseDTO toResponse(Product product,
+                    com.shopsphere.dto.RatingSummaryDTO rating) {
         int stock = product.getInventory() != null
                 ? product.getInventory().getStockQuantity() : 0;
         String status = product.isActive() ? "ACTIVE" : "INACTIVE";
@@ -139,7 +151,8 @@ public class ProductService {
                 product.getPrice(),
                 stock,
                 product.getCategory().getId(),
-                status
+                status,
+                rating
         );
     }
 }

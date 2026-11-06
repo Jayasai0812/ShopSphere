@@ -30,71 +30,94 @@ import java.util.List;
 @Configuration
 public class SecurityConfig {
 
-    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+        private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
-        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
-    }
+        public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+                this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+        }
 
-    @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder(10);
-    }
+        @Bean
+        public PasswordEncoder passwordEncoder() {
+                return new BCryptPasswordEncoder(10);
+        }
 
-    @Bean
-    public AuthenticationManager authenticationManager(
-            AuthenticationConfiguration configuration) throws Exception {
-        return configuration.getAuthenticationManager();
-    }
+        @Bean
+        public AuthenticationManager authenticationManager(
+                        AuthenticationConfiguration configuration) throws Exception {
+                return configuration.getAuthenticationManager();
+        }
 
-    @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        http
-                .csrf(csrf -> csrf.disable())
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .sessionManagement(session ->
-                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                        // ── public: health + auth endpoints ─────────────────
-                        .requestMatchers("/api/v1/health", "/api/v1/auth/**").permitAll()
-                        // ── public browsing: catalog reads ──────────────────
-                        .requestMatchers(HttpMethod.GET,
-                                "/api/v1/products/**", "/api/v1/categories/**").permitAll()
-                        // ── admin-only: catalog writes ──────────────────────
-                        .requestMatchers(HttpMethod.POST,
-                                "/api/v1/products/**", "/api/v1/categories/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PUT,
-                                "/api/v1/products/**", "/api/v1/categories/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PATCH, "/api/v1/products/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.DELETE,
-                                "/api/v1/products/**", "/api/v1/categories/**").hasRole("ADMIN")
-                        // ── everything else: any authenticated user ─────────
-                        .anyRequest().authenticated())
-                .exceptionHandling(exceptions -> exceptions
-                        // 401 with no redirect for unauthenticated API access
-                        .authenticationEntryPoint(new HttpStatusEntryPoint(
-                                org.springframework.http.HttpStatus.UNAUTHORIZED)))
-                .addFilterBefore(jwtAuthenticationFilter,
-                        UsernamePasswordAuthenticationFilter.class);
+        @Bean
+        public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+                http
+                                .csrf(csrf -> csrf.disable())
+                                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                                .sessionManagement(session -> session
+                                                .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                                .authorizeHttpRequests(auth -> auth
+                                                // ── public: health + auth endpoints ─────────────────
+                                                .requestMatchers("/api/v1/health", "/api/v1/auth/**").permitAll()
+                                                // ── public browsing: catalog reads ──────────────────
+                                                .requestMatchers(HttpMethod.GET,
+                                                                "/api/v1/products/**", "/api/v1/categories/**")
+                                                .permitAll()
+                                                // ── reviews (TASK-018): customers POST/PUT/DELETE their
+                                                // own; reading is public. Must be matched BEFORE the
+                                                // generic /products/** write rules below, which would
+                                                // otherwise demand ADMIN for review submission.
+                                                .requestMatchers(HttpMethod.GET,
+                                                                "/api/v1/products/*/reviews/*")
+                                                .permitAll()
+                                                .requestMatchers(HttpMethod.POST,
+                                                                "/api/v1/products/*/reviews")
+                                                .authenticated()
+                                                .requestMatchers(HttpMethod.PUT,
+                                                                "/api/v1/products/*/reviews/me")
+                                                .authenticated()
+                                                .requestMatchers(HttpMethod.DELETE,
+                                                                "/api/v1/products/*/reviews/me")
+                                                .authenticated()
+                                                // ── admin-only: catalog writes ──────────────────────
+                                                .requestMatchers(HttpMethod.POST,
+                                                                "/api/v1/products/**", "/api/v1/categories/**")
+                                                .hasRole("ADMIN")
+                                                .requestMatchers(HttpMethod.PUT,
+                                                                "/api/v1/products/**", "/api/v1/categories/**")
+                                                .hasRole("ADMIN")
+                                                .requestMatchers(HttpMethod.PATCH, "/api/v1/products/**")
+                                                .hasRole("ADMIN")
+                                                .requestMatchers(HttpMethod.DELETE,
+                                                                "/api/v1/products/**", "/api/v1/categories/**")
+                                                .hasRole("ADMIN")
+                                                // ── admin-only: review moderation (TASK-018) ───────
+                                                .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                                                // ── everything else: any authenticated user ─────────
+                                                .anyRequest().authenticated())
+                                .exceptionHandling(exceptions -> exceptions
+                                                // 401 with no redirect for unauthenticated API access
+                                                .authenticationEntryPoint(new HttpStatusEntryPoint(
+                                                                org.springframework.http.HttpStatus.UNAUTHORIZED)))
+                                .addFilterBefore(jwtAuthenticationFilter,
+                                                UsernamePasswordAuthenticationFilter.class);
 
-        return http.build();
-    }
+                return http.build();
+        }
 
-    /**
-     * CORS for the Angular dev server. Origins are dev-focused; tighten before
-     * production deployment.
-     */
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of("http://localhost:4200"));
-        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
-        configuration.setAllowCredentials(true);
-        configuration.setMaxAge(3600L);
+        /**
+         * CORS for the Angular dev server. Origins are dev-focused; tighten before
+         * production deployment.
+         */
+        @Bean
+        public CorsConfigurationSource corsConfigurationSource() {
+                CorsConfiguration configuration = new CorsConfiguration();
+                configuration.setAllowedOrigins(List.of("http://localhost:4200"));
+                configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+                configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+                configuration.setAllowCredentials(true);
+                configuration.setMaxAge(3600L);
 
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/api/**", configuration);
-        return source;
-    }
+                UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+                source.registerCorsConfiguration("/api/**", configuration);
+                return source;
+        }
 }
