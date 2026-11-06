@@ -17,10 +17,10 @@ import java.util.List;
  * <p>
  * Token layout (as agreed in the TASK-013 architecture review):
  * <ul>
- *   <li>{@code sub} — the user's email (unique identifier)</li>
- *   <li>{@code userId} claim — the database user id, so the current user can be
- *       resolved without an extra lookup by consumers of the token</li>
- *   <li>{@code roles} claim — list of role names, e.g. ["CUSTOMER"]</li>
+ * <li>{@code sub} — the user's email (unique identifier)</li>
+ * <li>{@code userId} claim — the database user id, so the current user can be
+ * resolved without an extra lookup by consumers of the token</li>
+ * <li>{@code roles} claim — list of role names, e.g. ["CUSTOMER"]</li>
  * </ul>
  * The signing secret is Base64-encoded key material supplied via configuration
  * (environment variable {@code JWT_SECRET}); it must be at least 256 bits.
@@ -32,7 +32,7 @@ public class JwtService {
     private final long expirationMs;
 
     public JwtService(@Value("${jwt.secret}") String base64Secret,
-                      @Value("${jwt.expiration-ms}") long expirationMs) {
+            @Value("${jwt.expiration-ms}") long expirationMs) {
         this.signingKey = Keys.hmacShaKeyFor(Decoders.BASE64.decode(base64Secret));
         this.expirationMs = expirationMs;
     }
@@ -62,6 +62,15 @@ public class JwtService {
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
+    }
+
+    /**
+     * The configured token lifetime in milliseconds. AuthService reports this
+     * as {@code expiresIn} so the advertised expiry always matches the
+     * lifetime baked into the tokens this service mints.
+     */
+    public long getExpirationMs() {
+        return expirationMs;
     }
 
     /** Extracts the subject (email) from a valid token. */

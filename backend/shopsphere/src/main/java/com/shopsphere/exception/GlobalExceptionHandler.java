@@ -4,6 +4,8 @@ import com.shopsphere.exception.EmailAlreadyExistsException;
 import org.springframework.http.HttpStatus;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ProblemDetail;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -42,6 +44,18 @@ public class GlobalExceptionHandler {
                 || (message.contains("users") && message.contains("email")
                         && message.contains("unique"))     // vendor-agnostic fallback
                 || (message.contains("duplicate") && message.contains("email"));
+    }
+
+    /**
+     * Uniform public response for every authentication failure raised inside
+     * the application (login endpoint). The detail is a fixed constant from
+     * {@link com.shopsphere.service.AuthService#INVALID_CREDENTIALS} — the
+     * underlying exception message (e.g. "User not found") is never exposed.
+     */
+    @ExceptionHandler(AuthenticationException.class)
+    public ProblemDetail handleAuthentication(AuthenticationException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED,
+                com.shopsphere.service.AuthService.INVALID_CREDENTIALS);
     }
 
     @ExceptionHandler(EmailAlreadyExistsException.class)
