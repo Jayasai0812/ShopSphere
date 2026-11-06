@@ -69,6 +69,9 @@ class ProductSearchTest {
         private static long inactiveId;
         private static long catAId;
         private static long catBId;
+        // Unique per-run suffix shared by all fixture names so a polluted
+        // shared test DB can't leak other tests' products into results.
+        private static String suffix;
 
         private void seed() {
                 if (seeded) {
@@ -83,11 +86,17 @@ class ProductSearchTest {
                 catAId = catA.getId();
                 catBId = catB.getId();
 
-                alphaId = product("Alpha Headphones", "SEA-001", "99.00", catA, true, 5).getId();
-                betaId = product("Beta Speaker", "SEA-002", "49.00", catA, true, 0).getId();
-                gammaId = product("Gamma Cable", "SEA-003", "9.00", catB, true, 50).getId();
-                deltaId = product("Delta Headphones Pro", "SEA-004", "199.00", catB, true, 3).getId();
-                inactiveId = product("Epsilon Legacy", "SEA-005", "10.00", catA, false, 10).getId();
+                // Unique SKUs (UUID suffix) so a re-seed in a shared test JVM
+                // (other test classes also create products) cannot collide and
+                // pollute this fixture's result sets.
+                String suffixLocal = java.util.UUID.randomUUID().toString()
+                                .substring(0, 8);
+                suffix = suffixLocal;
+                alphaId = product("Alpha Headphones " + suffix, "SEA-001" + suffix, "99.00", catA, true, 5).getId();
+                betaId = product("Beta Speaker" + suffix, "SEA-002" + suffix, "49.00", catA, true, 0).getId();
+                gammaId = product("Gamma Cable" + suffix, "SEA-003" + suffix, "9.00", catB, true, 50).getId();
+                deltaId = product("Delta Headphones Pro" + suffix, "SEA-004" + suffix, "199.00", catB, true, 3).getId();
+                inactiveId = product("Epsilon Legacy" + suffix, "SEA-005" + suffix, "10.00", catA, false, 10).getId();
 
                 // Alpha: APPROVED 5 and 3 → avg 4.0. Beta/Gamma: none. Delta: PENDING only.
                 review(reviewer, alphaId, 5, ReviewStatus.APPROVED);
@@ -184,7 +193,7 @@ class ProductSearchTest {
 
         @Test
         void textSearchMatchesNameAndDescriptionCaseInsensitively() throws Exception {
-                List<Long> ids = searchIds("?q=headphones");
+                List<Long> ids = searchIds("?q=" + suffix + " head");
                 assertThat(ids).containsExactlyInAnyOrder(alphaId, deltaId);
 
                 // Escaped wildcards: a literal percent sign must not match everything.
@@ -230,7 +239,7 @@ class ProductSearchTest {
 
         @Test
         void combinedFiltersCompose() throws Exception {
-                List<Long> ids = searchIds("?q=headphones&maxPrice=100&available=true");
+                List<Long> ids = searchIds("?q=" + suffix + " head&maxPrice=100&available=true");
                 assertThat(ids).containsExactly(alphaId);
 
                 mockMvc.perform(get("/api/v1/products?minRating=9"))

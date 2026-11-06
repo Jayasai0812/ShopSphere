@@ -8,11 +8,13 @@ import com.shopsphere.dto.ProductUpdateRequestDTO;
 import com.shopsphere.dto.RatingSummaryDTO;
 import com.shopsphere.entity.Inventory;
 import com.shopsphere.entity.Product;
+import com.shopsphere.entity.ProductImage;
 import com.shopsphere.exception.DuplicateSkuException;
 import com.shopsphere.exception.ResourceNotFoundException;
 import com.shopsphere.repository.CategoryRepository;
 import com.shopsphere.repository.InventoryRepository;
 import com.shopsphere.repository.ProductRepository;
+import com.shopsphere.repository.ProductImageRepository;
 import com.shopsphere.repository.ProductSpecifications;
 import com.shopsphere.repository.UserRepository;
 import org.springframework.data.domain.Page;
@@ -35,17 +37,20 @@ public class ProductService {
     private final UserRepository userRepository;
     private final InventoryRepository inventoryRepository;
     private final com.shopsphere.service.ReviewService reviewService;
+    private final com.shopsphere.repository.ProductImageRepository productImageRepository;
 
     public ProductService(ProductRepository productRepository,
                           CategoryRepository categoryRepository,
                           UserRepository userRepository,
                           InventoryRepository inventoryRepository,
-                          com.shopsphere.service.ReviewService reviewService) {
+                          com.shopsphere.service.ReviewService reviewService,
+                          com.shopsphere.repository.ProductImageRepository productImageRepository) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
         this.userRepository = userRepository;
         this.inventoryRepository = inventoryRepository;
         this.reviewService = reviewService;
+        this.productImageRepository = productImageRepository;
     }
 
     public ProductResponseDTO createProduct(ProductRequestDTO request) {
@@ -395,9 +400,46 @@ public class ProductService {
         List<Long> ids = content.stream().map(Product::getId).toList();
         var ratings = reviewService.summarizeAll(ids);
         var stockByProductId = stockByProductId(ids);
+        var imagesByProductId = imagesByProductId(ids);
         return page.map(p -> toResponse(p,
                 ratings.get(p.getId()),
-                stockByProductId.getOrDefault(p.getId(), 0)));
+                stockByProductId.getOrDefault(p.getId(), 0),
+                imagesByProductId.getOrDefault(p.getId(), List.of())));
+    }
+
+    /**
+     * ONE grouped query for the page's image metadata (no N+1): image rows
+     * of all page products ordered by product and sort position; primary
+     * images are promoted to the front of each product's list.
+     */
+    private Map<Long, List<com.shopsphere.dto.ProductImageResponseDTO>> imagesByProductId(
+                    List<Long> productIds) {
+        if (productIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, List<com.shopsphere.dto.ProductImageResponseDTO>> result =
+                        new java.util.HashMap<>();
+        for (ProductImage image : productImageRepository
+                        .findByProductIdInOrderByProductIdAscSortOrderAsc(productIds)) {
+            result.computeIfAbsent(image.getProduct().getId(), k ->
+                            new java.util.ArrayList<>())
+                    .add(com.shopsphere.service.ProductImageService.toResponse(image));
+        }
+        result.values().forEach(list -> {
+            int primaryIdx = -1;
+            for (int i = 0; i < list.size(); i++) {
+                if (list.get(i).primaryImage()) {
+                    primaryIdx = i;
+                    break;
+                }
+            }
+            if (primaryIdx > 0) {
+                com.shopsphere.dto.ProductImageResponseDTO primary =
+                                list.remove(primaryIdx);
+                list.add(0, primary);
+            }
+        });
+        return result;
     }
 
     /** ONE grouped query: product_id → total stock for the given ids. */
@@ -419,6 +461,12 @@ public class ProductService {
 
     private ProductResponseDTO toResponse(Product product,
                     com.shopsphere.dto.RatingSummaryDTO rating, int stock) {
+        return toResponse(product, rating, stock, java.util.List.of());
+    }
+
+    private ProductResponseDTO toResponse(Product product,
+                    com.shopsphere.dto.RatingSummaryDTO rating, int stock,
+                    List<com.shopsphere.dto.ProductImageResponseDTO> images) {
         String status = product.isActive() ? "ACTIVE" : "INACTIVE";
         return new ProductResponseDTO(
                 product.getId(),
@@ -428,7 +476,8 @@ public class ProductService {
                 stock,
                 product.getCategory().getId(),
                 status,
-                rating
+                rating,
+                images
         );
     }
 }

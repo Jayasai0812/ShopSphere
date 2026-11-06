@@ -55,8 +55,9 @@ public class SecurityConfig {
                                 .sessionManagement(session -> session
                                                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                                 .authorizeHttpRequests(auth -> auth
-                                                // ── public: health + auth endpoints ─────────────────
-                                                .requestMatchers("/api/v1/health", "/api/v1/auth/**").permitAll()
+                                                // ── public: health + auth + uploaded image files ────
+                                                .requestMatchers("/api/v1/health", "/api/v1/auth/**",
+                                                                "/images/**").permitAll()
                                                 // ── reviews (TASK-018): matched BEFORE the broad
                                                 // catalog rules. Spring Security applies the FIRST
                                                 // matching rule, so these must precede both the public
