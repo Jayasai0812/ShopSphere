@@ -89,6 +89,8 @@ class OrderControllerTest {
         address.setState("Karnataka");
         address.setPincode("560001");
         address.setCountry("India");
+        address.setFullName("History Customer");
+        address.setPhone("+91 9000000004");
         address.setDefaultAddress(true);
         customer.getAddresses().add(address);
 
@@ -111,6 +113,8 @@ class OrderControllerTest {
         otherAddress.setState("Delhi");
         otherAddress.setPincode("110001");
         otherAddress.setCountry("India");
+        otherAddress.setFullName("Other Customer");
+        otherAddress.setPhone("+91 9000000005");
         otherAddress.setDefaultAddress(true);
         otherUser.getAddresses().add(otherAddress);
         addressRepository.save(otherAddress);

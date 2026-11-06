@@ -42,16 +42,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest
 class CheckoutRollbackTest {
 
-    private static final String PASSWORD_HASH =
-            "$2a$10$dXJ3SW6G7P50lGmMkkmwe.20cQQubK3.HZWzG3YB1tlRy.fqvM/BG";
+    private static final String PASSWORD_HASH = "$2a$10$dXJ3SW6G7P50lGmMkkmwe.20cQQubK3.HZWzG3YB1tlRy.fqvM/BG";
 
-    @Autowired private OrderService orderService;
-    @Autowired private CartService cartService;
-    @Autowired private UserRepository userRepository;
-    @Autowired private ProductRepository productRepository;
-    @Autowired private CategoryRepository categoryRepository;
-    @Autowired private InventoryRepository inventoryRepository;
-    @Autowired private EntityManager entityManager;
+    @Autowired
+    private OrderService orderService;
+    @Autowired
+    private CartService cartService;
+    @Autowired
+    private UserRepository userRepository;
+    @Autowired
+    private ProductRepository productRepository;
+    @Autowired
+    private CategoryRepository categoryRepository;
+    @Autowired
+    private InventoryRepository inventoryRepository;
+    @Autowired
+    private EntityManager entityManager;
 
     @Test
     void midCheckoutFailureRollsBackEarlierInventoryAndCart() {
@@ -67,6 +73,8 @@ class CheckoutRollbackTest {
         address.setState("Maharashtra");
         address.setPincode("400001");
         address.setCountry("India");
+        address.setFullName("Rollback Customer");
+        address.setPhone("+91 9000000003");
         address.setDefaultAddress(true);
         customer.getAddresses().add(address);
         userRepository.save(customer);
@@ -121,9 +129,8 @@ class CheckoutRollbackTest {
             inventoryRepository.save(invBNow);
 
             // Checkout must fail on the second product...
-            assertThatThrownBy(() ->
-                    orderService.checkout(customer.getId(),
-                            new CheckoutRequestDTO(address.getId())))
+            assertThatThrownBy(() -> orderService.checkout(customer.getId(),
+                    new CheckoutRequestDTO(address.getId())))
                     .isInstanceOf(ResponseStatusException.class)
                     .hasMessageContaining("Insufficient stock");
 

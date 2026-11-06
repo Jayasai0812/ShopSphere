@@ -11,10 +11,20 @@
 -- the new columns are made NOT NULL. On a fresh database the backfills are
 -- no-ops. address_type defaults to 'HOME'.
 --
--- Note: Flyway is not yet configured in this project — execute this script
--- manually against shopsphere_db for now (e.g.
+-- Note: this file lives under src/main/resources/db/migration as a plain
+-- SQL script but is NOT yet wired to Flyway (no flyway dependency is
+-- configured). Execute it manually against shopsphere_db for now (e.g.
 --   mysql -u root -p shopsphere_db < V3__enrich_addresses.sql
 -- ). Adding Flyway is a separate improvement.
+--
+-- Testing notes before running against a real database:
+--  * users.phone is nullable — existing address rows whose owner has no
+--    phone number get 'UNKNOWN', which is NOT a valid delivery number.
+--    Affected users must correct these via PATCH /addresses/{id} after
+--    the migration; there is no self-service bulk fix yet.
+--  * Test the script on a copy of a database that already CONTAINS
+--    address rows (not just an empty one) — the backfill UPDATE and the
+--    NOT NULL tightening are the parts that can fail on real data.
 
 USE shopsphere_db;
 

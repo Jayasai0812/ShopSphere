@@ -5,12 +5,16 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
- * Request body for PATCH /api/v1/users/me/addresses/{id} (partial update).
+ * Request body for PATCH /api/v1/users/me/addresses/{id} — a PARTIAL
+ * update, not a full replacement: fields absent from the JSON keep their
+ * current value.
  *
- * Every field is optional: only the fields present in the JSON are
- * updated, so the same DTO serves both "edit the whole address" and
- * "just flip isDefault" use cases. Null means "leave unchanged", and an
- * explicit blank string can be supplied for addressLine2 to clear it.
+ * Null-handling rule (simple, deliberately coarse): a field that is
+ * omitted from the JSON or explicitly sent as null means "leave
+ * unchanged". Jackson does not let a plain record distinguish those two
+ * cases, so they are treated identically. The one exception is
+ * addressLine2: sending an empty string ("") clears the field, since a
+ * nullable second line has a meaningful "clear" action.
  *
  * Field constraints are identical to AddressRequestDTO so a full update
  * payload validates the same way a create payload does.

@@ -125,6 +125,8 @@ class RepositoryCrudTest {
         home.setState("Karnataka");
         home.setPincode("560001");
         home.setCountry("India");
+        home.setFullName("Arjun Das");
+        home.setPhone("+91 9000000006");
         home.setDefaultAddress(true);
         user.getAddresses().add(home);
 

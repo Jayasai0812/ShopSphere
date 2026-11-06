@@ -69,6 +69,8 @@ class OrderServiceTest {
         address.setPincode("560001");
         address.setCountry("India");
         address.setDefaultAddress(true);
+        address.setFullName("Legacy Customer");
+        address.setPhone("+91 9000000001");
         customer.getAddresses().add(address);
 
         userRepository.save(customer);
@@ -88,7 +90,11 @@ class OrderServiceTest {
         otherAddress.setState("Delhi");
         otherAddress.setPincode("110001");
         otherAddress.setCountry("India");
+        otherAddress.setFullName("Other User");
+        otherAddress.setPhone("+91 9000000002");
         otherAddress.setDefaultAddress(true);
+        address.setFullName("Legacy Customer");
+        address.setPhone("+91 9000000001");
         otherUser.getAddresses().add(otherAddress);
 
         userRepository.save(otherUser);
