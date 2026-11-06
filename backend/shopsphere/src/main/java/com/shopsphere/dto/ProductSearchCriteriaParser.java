@@ -24,6 +24,7 @@ import java.util.List;
 public final class ProductSearchCriteriaParser {
 
         public static final int MAX_PAGE_SIZE = 100;
+        public static final int MAX_QUERY_LENGTH = 200;
 
         private ProductSearchCriteriaParser() {
         }
@@ -49,9 +50,9 @@ public final class ProductSearchCriteriaParser {
                                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                                                 "minRating must be a number");
                         }
-                        if (rating < 1 || rating > 5) {
+                        if (rating < 1 || rating > 5 || !Double.isFinite(rating)) {
                                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                                                "minRating must be between 1 and 5");
+                                                "minRating must be a finite number between 1 and 5");
                         }
                 }
 
@@ -107,8 +108,15 @@ public final class ProductSearchCriteriaParser {
                         }
                 }
 
+                String query = blankToNull(q);
+                if (query != null && query.length() > MAX_QUERY_LENGTH) {
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                        "Search query must not exceed " + MAX_QUERY_LENGTH
+                                                        + " characters");
+                }
+
                 return new ProductSearchCriteria(
-                                blankToNull(q), categoryId, min, max, rating,
+                                query, categoryId, min, max, rating,
                                 availableFlag, stock, sorts);
         }
 

@@ -220,11 +220,13 @@ public class ProductService {
                                                     .when(cb.isNull(avg), 1)
                                                     .otherwise(0);
                                     orders.add(cb.asc(nullMarker));
-                                    orders.add(cb.desc(avg));
+                                    orders.add(sortSpec.descending()
+                                                    ? cb.desc(avg) : cb.asc(avg));
                             }
                             case POPULARITY -> {
                                     var units = ProductSpecifications.unitsSold(query, cb, root);
-                                    orders.add(cb.desc(units));
+                                    orders.add(sortSpec.descending()
+                                                    ? cb.desc(units) : cb.asc(units));
                             }
                             default -> {
                                     // NAME/PRICE/NEWEST are property sorts — handled in

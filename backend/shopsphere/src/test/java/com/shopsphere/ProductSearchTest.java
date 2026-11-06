@@ -279,6 +279,12 @@ class ProductSearchTest {
                 // Delta 12 first, then Alpha 4; Beta/Gamma zero (id tie-breaker).
                 assertThat(ids.indexOf(deltaId)).isLessThan(ids.indexOf(alphaId));
                 assertThat(ids).doesNotContain(inactiveId);
+
+                // Ascending popularity: zero-sellers first (id tie-breaker),
+                // then Alpha (4), Delta (12) last.
+                List<Long> asc = searchIds("?sort=popularity,asc");
+                assertThat(asc.indexOf(alphaId)).isLessThan(asc.indexOf(deltaId));
+                assertThat(asc.indexOf(betaId)).isLessThan(asc.indexOf(alphaId));
         }
 
         @Test
@@ -286,7 +292,27 @@ class ProductSearchTest {
                 List<Long> ids = searchIds("?sort=rating,desc");
                 // Alpha (avg 4.0) first; the rest are unrated → last, id tie-breaker.
                 assertThat(ids).startsWith(alphaId);
-                assertThat(ids.indexOf(deltaId)).isGreaterThan(ids.indexOf(alphaId));
+                // Ascending rating: still rated products first (Alpha),
+                // unrated last regardless of direction.
+                List<Long> asc = searchIds("?sort=rating,asc");
+                assertThat(asc).startsWith(alphaId);
+                assertThat(asc.indexOf(deltaId)).isGreaterThan(asc.indexOf(alphaId));
+        }
+
+        @Test
+        void invalidPaginationAndQueryLengthRejected() throws Exception {
+                mockMvc.perform(get("/api/v1/products?page=-1"))
+                                .andExpect(status().isBadRequest());
+                mockMvc.perform(get("/api/v1/products?size=0"))
+                                .andExpect(status().isBadRequest());
+                mockMvc.perform(get("/api/v1/products?minRating=NaN"))
+                                .andExpect(status().isBadRequest());
+                mockMvc.perform(get("/api/v1/products?minRating=Infinity"))
+                                .andExpect(status().isBadRequest());
+                mockMvc.perform(get("/api/v1/products?q=" + "x".repeat(201)))
+                                .andExpect(status().isBadRequest());
+                mockMvc.perform(get("/api/v1/products?q=" + "x".repeat(200)))
+                                .andExpect(status().isOk());
         }
 
         @Test

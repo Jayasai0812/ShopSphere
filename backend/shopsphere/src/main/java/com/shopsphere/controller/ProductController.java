@@ -82,6 +82,11 @@ public class ProductController {
                         }
                 }
 
+                if (page < 0 || size < 1) {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                        org.springframework.http.HttpStatus.BAD_REQUEST,
+                                        "Page must be non-negative and size must be at least 1");
+                }
                 ProductSearchCriteria criteria = ProductSearchCriteriaParser.parse(
                                 q, categoryId, minPrice, maxPrice, minRating,
                                 available, minStock, sortParams, size);
