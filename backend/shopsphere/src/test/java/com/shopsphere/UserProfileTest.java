@@ -145,7 +145,7 @@ class UserProfileTest {
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content("{\"currentPassword\":\"%s\",\"newPassword\":\"NewPass123\"}"
                                                 .formatted(PASSWORD)))
-                                .andExpect(status().isOk());
+                                .andExpect(status().isNoContent());
 
                 // Old password no longer works
                 mockMvc.perform(post("/api/v1/auth/login")

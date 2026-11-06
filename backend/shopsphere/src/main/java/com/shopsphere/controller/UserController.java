@@ -43,10 +43,12 @@ public class UserController {
                 return ResponseEntity.ok(userService.updateProfile(request));
         }
 
-        /** Changes the logged-in user's password after verifying the current one. */
+        /** Changes the logged-in user's password after verifying the current one.
+         *  Returns 204 No Content — the profile is not re-sent. */
         @PatchMapping("/me/password")
-        public ResponseEntity<UserProfileResponseDTO> changePassword(
+        public ResponseEntity<Void> changePassword(
                         @Valid @RequestBody ChangePasswordRequestDTO request) {
-                return ResponseEntity.ok(userService.changePassword(request));
+                userService.changePassword(request);
+                return ResponseEntity.noContent().build();
         }
 }

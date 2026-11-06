@@ -64,9 +64,16 @@ public class UserService {
          * verified with BCrypt first; a mismatch is reported as a field error
          * on currentPassword (400) without revealing anything about the stored
          * hash. The new password is BCrypt-encoded before persistence.
+         * <p>
+         * JWTs issued BEFORE this change remain valid until their natural
+         * expiry — the token is stateless and cannot be revoked. A
+         * token-version or denylist mechanism is the later hardening task.
+         * <p>
+         * Returns 204 No Content: the profile did not change, so there is
+         * nothing to send back.
          */
         @Transactional
-        public UserProfileResponseDTO changePassword(ChangePasswordRequestDTO request) {
+        public void changePassword(ChangePasswordRequestDTO request) {
                 User user = loadCurrentUser();
 
                 if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
@@ -75,8 +82,6 @@ public class UserService {
 
                 user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
                 userRepository.save(user);
-
-                return toProfileDto(user);
         }
 
         private User loadCurrentUser() {
