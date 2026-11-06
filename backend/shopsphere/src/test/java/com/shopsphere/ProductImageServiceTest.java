@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,8 +19,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit tests for filesystem/DB consistency in ProductImageService:
- * a failed database save must not leave an orphaned file on disk,
- * and absolute storage paths must be preserved by StorageProperties.
+ * a failed database save or a failed transaction COMMIT must not leave
+ * an orphaned file on disk, and absolute storage paths must be preserved
+ * by StorageProperties.
  */
 class ProductImageServiceTest {
 
@@ -40,8 +40,12 @@ class ProductImageServiceTest {
                 }
         }
 
-        @Test
-        void failedDatabaseSaveCleansUpTheUploadedFile() {
+        /** Mocks the repos; saveFails=true makes save() throw. */
+        private record ServiceMocks(ProductImageService service,
+                        ProductImageRepository imageRepo) {
+        }
+
+        private ServiceMocks serviceWithMockedRepos(boolean saveFails) {
                 ProductImageRepository imageRepo = Mockito.mock(ProductImageRepository.class);
                 ProductRepository productRepo = Mockito.mock(ProductRepository.class);
                 StorageProperties storage = new StorageProperties(
@@ -55,13 +59,24 @@ class ProductImageServiceTest {
                                 .thenReturn(java.util.List.of());
                 Mockito.when(imageRepo.findByProductIdAndPrimaryImageTrue(1L))
                                 .thenReturn(Optional.empty());
-                Mockito.when(imageRepo.save(Mockito.any()))
-                                .thenThrow(new RuntimeException("db down"));
+                if (saveFails) {
+                        Mockito.when(imageRepo.save(Mockito.any()))
+                                        .thenThrow(new RuntimeException("db down"));
+                } else {
+                        Mockito.when(imageRepo.save(Mockito.any()))
+                                        .thenAnswer(inv -> inv.getArgument(0));
+                }
+                return new ServiceMocks(service, imageRepo);
+        }
+
+        @Test
+        void failedDatabaseSaveCleansUpTheUploadedFile() {
+                var mocks = serviceWithMockedRepos(true);
 
                 MockMultipartFile file = new MockMultipartFile("file", "x.png",
                                 "image/png", realPng());
 
-                assertThatThrownBy(() -> service.uploadImage(1L, file))
+                assertThatThrownBy(() -> mocks.service().uploadImage(1L, file))
                                 .isInstanceOf(RuntimeException.class)
                                 .hasMessageContaining("db down");
 
@@ -71,34 +86,57 @@ class ProductImageServiceTest {
                 } catch (Exception e) {
                         throw new IllegalStateException(e);
                 }
-                Mockito.verify(imageRepo).save(Mockito.any());
+                Mockito.verify(mocks.imageRepo()).save(Mockito.any());
         }
 
         @Test
         void validUploadPersistsAndKeepsTheFile() {
-                ProductImageRepository imageRepo = Mockito.mock(ProductImageRepository.class);
-                ProductRepository productRepo = Mockito.mock(ProductRepository.class);
-                StorageProperties storage = new StorageProperties(
-                                tempDir.toString(), "/images");
-                ProductImageService service = new ProductImageService(
-                                imageRepo, productRepo, storage);
+                var mocks = serviceWithMockedRepos(false);
 
-                Product product = new Product();
-                Mockito.when(productRepo.findById(1L)).thenReturn(Optional.of(product));
-                Mockito.when(imageRepo.findByProductIdOrderBySortOrderAsc(1L))
-                                .thenReturn(java.util.List.of());
-                Mockito.when(imageRepo.findByProductIdAndPrimaryImageTrue(1L))
-                                .thenReturn(Optional.empty());
-                Mockito.when(imageRepo.save(Mockito.any()))
-                                .thenAnswer(inv -> inv.getArgument(0));
-
-                var response = service.uploadImage(1L,
+                var response = mocks.service().uploadImage(1L,
                                 new MockMultipartFile("file", "ok.png",
                                                 "image/png", realPng()));
 
                 assertThat(response.imageUrl()).startsWith("/images/");
                 try (var files = Files.list(tempDir)) {
                         assertThat(files.count()).isEqualTo(1);
+                } catch (Exception e) {
+                        throw new IllegalStateException(e);
+                }
+        }
+
+        /**
+         * Commit-failure scenario: the service method itself succeeds, but
+         * the surrounding transaction rolls back afterwards (exactly what
+         * happens when the actual DB commit fails). The registered
+         * afterCompletion() synchronization must remove the file.
+         */
+        @Test
+        void transactionRollbackAfterUploadCleansUpTheFile() {
+                var mocks = serviceWithMockedRepos(false);
+
+                // Simulate an active transaction around the upload, which then
+                // rolls back AFTER the method returned (commit failure).
+                org.springframework.transaction.support.TransactionSynchronizationManager
+                                .initSynchronization();
+                try {
+                        mocks.service().uploadImage(1L, new MockMultipartFile("file",
+                                        "rollback.png", "image/png", realPng()));
+                        // Method returned successfully — now the "commit fails"
+                        // and the synchronizations fire with ROLLED_BACK.
+                        for (var sync : org.springframework.transaction.support.TransactionSynchronizationManager
+                                        .getSynchronizations()) {
+                                sync.afterCompletion(
+                                        org.springframework.transaction.support.TransactionSynchronization.STATUS_ROLLED_BACK);
+                        }
+                } finally {
+                        org.springframework.transaction.support.TransactionSynchronizationManager
+                                        .clearSynchronization();
+                }
+
+                // The uploaded file was removed by the rollback cleanup.
+                try (var files = Files.list(tempDir)) {
+                        assertThat(files.count()).isZero();
                 } catch (Exception e) {
                         throw new IllegalStateException(e);
                 }

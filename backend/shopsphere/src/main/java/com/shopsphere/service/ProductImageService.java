@@ -109,9 +109,27 @@ public class ProductImageService {
                         image.setPrimaryImage(existing.isEmpty() ? Boolean.TRUE : null);
                         image = imageRepository.save(image);
                         // Flush NOW so a constraint/DB failure surfaces inside this
-                        // try-block and the just-written file gets cleaned up —
-                        // otherwise the file would be orphaned on disk.
+                        // try-block — the catch below is the FIRST line of defense.
                         imageRepository.flush();
+
+                        // SECOND line of defense: the actual commit happens AFTER
+                        // this method returns. If the commit fails, the catch
+                        // block never runs — so also delete the file in
+                        // afterCompletion() whenever the transaction rolled back.
+                        if (org.springframework.transaction.support.TransactionSynchronizationManager
+                                        .isSynchronizationActive()) {
+                                org.springframework.transaction.support.TransactionSynchronizationManager
+                                                .registerSynchronization(
+                                                                new org.springframework.transaction.support.TransactionSynchronization() {
+                                                                        @Override
+                                                                        public void afterCompletion(
+                                                                                        int status) {
+                                                                                if (status != org.springframework.transaction.support.TransactionSynchronization.STATUS_COMMITTED) {
+                                                                                        deleteFileQuietly(storedFileName);
+                                                                                }
+                                                                        }
+                                                                });
+                        }
                         return toResponse(image);
                 } catch (RuntimeException e) {
                         deleteFileQuietly(storedFileName);
@@ -234,21 +252,36 @@ public class ProductImageService {
                         throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
                                         "Image file extension must be jpg, jpeg, png or webp");
                 }
+                // The declared extension must agree with the declared MIME type
+                // (.png ↔ image/png, .jpg/.jpeg ↔ image/jpeg, .webp ↔ image/webp).
+                boolean extensionMatches = switch (contentType) {
+                        case "image/png" -> extension.equals("png");
+                        case "image/jpeg" -> extension.equals("jpg")
+                                        || extension.equals("jpeg");
+                        case "image/webp" -> extension.equals("webp");
+                        default -> false;
+                };
+                if (!extensionMatches) {
+                        throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                                        "File extension does not match the declared image type");
+                }
                 validateDecodableImage(file, contentType);
         }
 
         /**
-         * Actual image-content validation: the bytes must decode as a real
-         * image of the declared type. A six-byte PNG header or a text file
-         * with an image MIME type is rejected here. Uses the JDK ImageIO for
-         * JPEG/PNG and the registered TwelveMonkeys WebP reader; also caps
-         * dimensions/total pixels to guard against decompression bombs.
+         * Actual image-content validation: the bytes must decode as a FULL
+         * image of the declared type. Metadata inspection alone (width/
+         * height from the header) is not enough — a file with a valid PNG
+         * header but corrupted IDAT payload is rejected here because
+         * reader.read(0) throws. Uses the JDK ImageIO for JPEG/PNG and the
+         * registered TwelveMonkeys WebP reader; also caps dimensions/total
+         * pixels BEFORE decoding to guard against decompression bombs.
          */
         private void validateDecodableImage(MultipartFile file, String contentType) {
-                try (InputStream in = file.getInputStream()) {
+                try (InputStream in = file.getInputStream();
+                                javax.imageio.stream.ImageInputStream stream =
+                                                javax.imageio.ImageIO.createImageInputStream(in)) {
                         javax.imageio.ImageIO.setUseCache(false);
-                        javax.imageio.stream.ImageInputStream stream =
-                                        javax.imageio.ImageIO.createImageInputStream(in);
                         if (stream == null) {
                                 throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
                                                 "File is not a decodable image");
@@ -287,6 +320,9 @@ public class ProductImageService {
                                         throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                                                         "Image dimensions exceed the allowed limit");
                                 }
+                                // FULL decode: validates the complete pixel data,
+                                // not just the header/metadata.
+                                reader.read(0);
                         } finally {
                                 reader.dispose();
                         }

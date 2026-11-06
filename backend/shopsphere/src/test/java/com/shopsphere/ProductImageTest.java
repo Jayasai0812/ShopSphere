@@ -226,9 +226,47 @@ class ProductImageTest {
                                 .with(admin()))
                                 .andExpect(status().isUnsupportedMediaType());
 
+                // Valid PNG HEADER but corrupted pixel data: take a real PNG
+                // and corrupt its IDAT payload — metadata reads succeed, full
+                // decode must fail → 415.
+                byte[] corruptedPixels = realPng().clone();
+                int idatIndex = indexOf(corruptedPixels, "IDAT");
+                for (int i = idatIndex + 8;
+                                i < corruptedPixels.length - 8; i += 3) {
+                        corruptedPixels[i] = (byte) 0xFF;
+                }
+                mockMvc.perform(multipart("/api/v1/admin/products/{id}/images", productId)
+                                .file(new MockMultipartFile("file", "corrupt-pixels.png",
+                                                "image/png", corruptedPixels))
+                                .with(admin()))
+                                .andExpect(status().isUnsupportedMediaType());
+
+                // Extension/MIME mismatch: PNG bytes named .jpg with JPEG MIME
+                // are now rejected at the extension check → 415.
+                mockMvc.perform(multipart("/api/v1/admin/products/{id}/images", productId)
+                                .file(new MockMultipartFile("file", "mismatch.png",
+                                                "image/jpeg", realPng()))
+                                .with(admin()))
+                                .andExpect(status().isUnsupportedMediaType());
+
                 // Nothing was persisted for this product.
                 assertThat(imageRepository.findByProductIdOrderBySortOrderAsc(productId))
                                 .isEmpty();
+        }
+
+        /** Index of an ASCII chunk name inside a PNG byte array. */
+        private static int indexOf(byte[] data, String chunkName) {
+                byte[] needle = chunkName.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+                outer:
+                for (int i = 0; i <= data.length - needle.length; i++) {
+                        for (int j = 0; j < needle.length; j++) {
+                                if (data[i + j] != needle[j]) {
+                                        continue outer;
+                                }
+                        }
+                        return i;
+                }
+                return -1;
         }
 
         @Test

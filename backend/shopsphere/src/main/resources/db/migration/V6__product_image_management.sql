@@ -9,12 +9,16 @@
 --                 index treats NULLs as distinct, so any number of NULL
 --                 (non-primary) rows coexist with the single TRUE row.
 --
--- The migration is idempotent-safe to run once against an existing database
--- with product image data: it backfills deterministic sort orders and picks
--- exactly one primary per product (the lowest id — the first uploaded).
+-- ONE-TIME MANUAL migration — NOT idempotent, and NOT wired to Flyway
+-- (no flyway dependency configured). Running it twice FAILS on the ALTER
+-- statements (columns/constraint already exist).
 --
--- Note: NOT wired to Flyway (no flyway dependency configured). Execute
--- manually against shopsphere_db:
+-- Before executing against shopsphere_db:
+--   1. Back up the database (mysqldump).
+--   2. Rehearse on a COPY containing real product-image rows and verify
+--      the backfill results (sort_order density, exactly one primary per
+--      product, constraint accepts NULLs) before touching production.
+-- Execute manually:
 --   mysql -u root -p shopsphere_db < V6__product_image_management.sql
 --
 USE shopsphere_db;
